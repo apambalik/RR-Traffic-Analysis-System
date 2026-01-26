@@ -15,11 +15,13 @@ processing_jobs = {}
 class ProcessingJob:
     """Represents a video processing job"""
     def __init__(self, session_id: str, video_path: str, line_points: list, 
-                 location: str, video_start_time: datetime = None):
+                 location: str, video_start_time: datetime = None,
+                 camera_role: str = 'ENTRY'):
         self.session_id = session_id
         self.video_path = video_path
         self.line_points = line_points
         self.location = location
+        self.camera_role = camera_role
         self.video_start_time = video_start_time or datetime.now()
         self.status = 'pending'  # pending, processing, completed, error
         self.progress = 0
@@ -37,12 +39,13 @@ class ProcessingJob:
 
 
 def start_processing(session_id: str, video_path: str, line_points: list, 
-                    location: str, video_start_time: datetime = None):
+                    location: str, video_start_time: datetime = None,
+                    camera_role: str = 'ENTRY'):
     """
     Start video processing in a background thread.
     Returns immediately after starting the thread.
     """
-    job = ProcessingJob(session_id, video_path, line_points, location, video_start_time)
+    job = ProcessingJob(session_id, video_path, line_points, location, video_start_time, camera_role)
     processing_jobs[session_id] = job
     
     # Start processing in background thread
@@ -224,12 +227,13 @@ def _process_with_realtime_updates(video_processor: VideoProcessor, job: Process
                     new_events = session_data.events[last_event_count:]
                     for event in new_events:
                         _emit_vehicle_event(job, event)
+                        firebase_service.save_event(job.session_id, event)
                     
                     # Emit updated statistics
                     _emit_statistics_update(job, session_data.get_statistics())
                     
                     # Save to Firebase periodically
-                    firebase_service.save_session(session_data)
+                    firebase_service.save_session(session_data, update_events=False)
                     
                     last_event_count = current_event_count
             
@@ -280,7 +284,11 @@ def _process_frame_detections(detections, line_points, track_class, track_last_d
                 (is_within or prev_within)):
                 
                 cls_name = video_processor.class_names[track_class[tracker_id]]
-                direction = 'IN' if dist > 0 else 'OUT'
+                
+                if job.camera_role == 'EXIT':
+                    direction = 'OUT'
+                else:
+                    direction = 'IN'
                 
                 capacity = video_processor.vehicle_capacity.get(cls_name, {'min': 1, 'max': 1})
                 

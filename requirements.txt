@@ -7,8 +7,9 @@ Pillow==10.1.0
 firebase-admin==6.3.0
 python-dotenv==1.0.0
 numpy<2.0
-torch>=2.2.0
-torchvision>=0.17.0
+--extra-index-url https://download.pytorch.org/whl/cu126
+torch==2.9.0+cu126
+torchvision==0.24.0+cu126
 roboflow==1.1.9
 rfdetr
 eventlet==0.35.1

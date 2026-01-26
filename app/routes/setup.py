@@ -97,6 +97,7 @@ def start_processing_route():
     
     data = request.get_json()
     location = data.get('location', 'Unknown')
+    camera_role = data.get('camera_role', 'ENTRY')
     
     # Parse video start time if provided (for historical footage)
     video_start_time = None
@@ -116,7 +117,8 @@ def start_processing_route():
             video_path=video_path,
             line_points=line_points,
             location=location,
-            video_start_time=video_start_time
+            video_start_time=video_start_time,
+            camera_role=camera_role
         )
         
         return jsonify({

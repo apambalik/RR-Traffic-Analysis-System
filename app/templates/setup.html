@@ -22,6 +22,14 @@
                 </svg>
                 Input Source
             </h3>
+
+            <div class="form-group">
+                <label class="form-label">Camera Role</label>
+                <select class="form-select" id="camera-role">
+                    <option value="ENTRY">Entry Camera</option>
+                    <option value="EXIT">Exit Camera</option>
+                </select>
+            </div>
             
             <div class="form-group">
                 <label class="form-label">Select Source Type</label>
@@ -65,13 +73,13 @@
                 Action Panel
             </h3>
 
-            <button class="btn btn-primary btn-full" id="set-line-btn" disabled>
+            <!-- <button class="btn btn-primary btn-full" id="set-line-btn" disabled>
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                     <path d="M12 19l7-7 3 3-7 7-3-3z"/>
                     <path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z"/>
                 </svg>
                 Set Counting Line
-            </button>
+            </button> -->
 
             <button class="btn btn-outline btn-full" id="reset-line-btn" disabled>
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -155,7 +163,7 @@ document.addEventListener('DOMContentLoaded', function() {
     const fileNameDisplay = document.getElementById('file-name');
     const videoUploadSection = document.getElementById('video-upload-section');
     const cameraSection = document.getElementById('camera-section');
-    const setLineBtn = document.getElementById('set-line-btn');
+    // const setLineBtn = document.getElementById('set-line-btn');
     const resetLineBtn = document.getElementById('reset-line-btn');
     const saveConfigBtn = document.getElementById('save-config-btn');
     const canvasPlaceholder = document.getElementById('canvas-placeholder');
@@ -202,7 +210,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 if (data.success) {
                     // Get first frame
                     await loadFirstFrame();
-                    setLineBtn.disabled = false;
+                    // setLineBtn.disabled = false;
                 } else {
                     alert('Error uploading video: ' + data.error);
                 }
@@ -254,13 +262,13 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     // Set counting line button - just provides instruction
-    setLineBtn.addEventListener('click', function() {
-        if (lineDrawer) {
-            alert('Click and drag on the video preview to draw the counting line');
-        } else {
-            alert('Please upload a video first');
-        }
-    });
+    // setLineBtn.addEventListener('click', function() {
+    //     if (lineDrawer) {
+    //         alert('Click and drag on the video preview to draw the counting line');
+    //     } else {
+    //         alert('Please upload a video first');
+    //     }
+    // });
 
     // Reset line button
     resetLineBtn.addEventListener('click', function() {
@@ -281,6 +289,7 @@ document.addEventListener('DOMContentLoaded', function() {
         
         const linePoints = lineDrawer.getLinePoints();
         const location = document.getElementById('location-input').value || 'Unknown';
+        const cameraRole = document.getElementById('camera-role').value;
         
         try {
             // Save line coordinates
@@ -298,7 +307,10 @@ document.addEventListener('DOMContentLoaded', function() {
             const response = await fetch('/setup/start-processing', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ location: location })
+                body: JSON.stringify({ 
+                    location: location,
+                    camera_role: cameraRole 
+                })
             });
             
             const data = await response.json();

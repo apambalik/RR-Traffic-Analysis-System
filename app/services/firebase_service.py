@@ -22,19 +22,22 @@ class FirebaseService:
             })
         self.ref = db.reference('/')
     
-    def save_session(self, session_data: SessionData):
-        """Save session data to Firebase"""
+    def save_session(self, session_data: SessionData, update_events=False):
+        """Save session data. By default, DO NOT overwrite the events list."""
         session_ref = self.ref.child('sessions').child(session_data.session_id)
         
         data = {
             'location': session_data.location,
             'start_time': session_data.start_time.isoformat(),
             'statistics': session_data.get_statistics(),
-            'events': [event.to_dict() for event in session_data.events],
             'line_coordinates': session_data.line_coordinates
         }
         
-        session_ref.set(data)
+        # Only include events if explicitly requested (e.g., at end of session)
+        if update_events:
+            data['events'] = [event.to_dict() for event in session_data.events]
+            
+        session_ref.update(data)
     
     def save_event(self, session_id: str, event):
         """Save individual event to Firebase"""

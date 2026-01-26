@@ -4,6 +4,7 @@ from pathlib import Path
 from PIL import Image
 import supervision as sv
 import math
+import torch
 from rfdetr import RFDETRBase
 from datetime import datetime
 from app.models import VehicleEvent, SessionData
@@ -11,9 +12,13 @@ from app.config import Config
 
 class VideoProcessor:
     def __init__(self, model_path: str):
+        self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
+        print(f"Loading model on: {self.device}")
         self.model = RFDETRBase(pretrain_weights=model_path)
-        # Note: optimize_for_inference() removed due to JIT tracing incompatibility
-        # with RF-DETR output format. Model works fine without optimization.
+        # Move internal model to device (RFDETRBase might need manual moving 
+        # or it might have a .to() method depending on implementation)
+        if hasattr(self.model, 'model') and hasattr(self.model.model, 'to'):
+             self.model.model.to(self.device)
         self.class_names = ['cars-counter', 'Bus', 'Motorcycle', 'Pickup', 'Sedan', 'SUV', 'Truck', 'Van']
         self.vehicle_capacity = Config.VEHICLE_CAPACITY
         
