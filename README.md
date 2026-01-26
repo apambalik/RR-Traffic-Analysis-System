@@ -36,9 +36,11 @@ rr-traffic-analysis-system/
 │   ├── services/
 │   │   ├── __init__.py
 │   │   ├── video_processor.py   # The RF-DETR & ByteTrack Logic (Threaded)
-│   │   └── firebase_service.py  # Handles 'logging' and 'real-time' DB pushes
+│   │   ├── firebase_service.py  # Handles 'logging' and 'real-time' DB pushes
+│   │   └── processing_service.py  
 │   ├── static/
 │   │   ├── css/
+│   │   │   └── style.css
 │   │   └── js/
 │   │       ├── dashboard.js     # Charts.js logic for polling Firebase
 │   │       └── setup_canvas.js  # Renamed: Logic for drawing the line over the video frame
