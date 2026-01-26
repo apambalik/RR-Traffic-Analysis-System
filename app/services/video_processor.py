@@ -9,6 +9,7 @@ from rfdetr import RFDETRBase
 from datetime import datetime
 from app.models import VehicleEvent, SessionData
 from app.config import Config
+from app.utils.math_utils import calculate_line_signed_distance
 
 class VideoProcessor:
     def __init__(self, model_path: str):
@@ -148,7 +149,7 @@ class VideoProcessor:
             # Convert line points to integers
             lp1 = (int(line_points[0][0]), int(line_points[0][1]))
             lp2 = (int(line_points[1][0]), int(line_points[1][1]))
-            dist, is_within = self._line_signed_distance(lp1, lp2, (cx, cy))
+            dist, is_within = calculate_line_signed_distance(lp1, lp2, (cx, cy))
             
             prev_data = track_last_dist.get(tracker_id)
             track_class[tracker_id] = int(class_id)
@@ -178,31 +179,6 @@ class VideoProcessor:
                     counted_track_ids.add(tracker_id)
             
             track_last_dist[tracker_id] = (dist, is_within)
-    
-    def _line_signed_distance(self, p1, p2, centroid):
-        """Calculate signed distance from point to line"""
-        x1, y1 = p1
-        x2, y2 = p2
-        cx, cy = centroid
-        
-        dx = x2 - x1
-        dy = y2 - y1
-        line_len_sq = dx * dx + dy * dy
-        
-        if line_len_sq == 0:
-            return 0.0, False
-        
-        t = ((cx - x1) * dx + (cy - y1) * dy) / line_len_sq
-        margin = 0.1
-        is_within_segment = -margin <= t <= 1.0 + margin
-        
-        a = y2 - y1
-        b = x1 - x2
-        c = x2 * y1 - x1 * y2
-        denom = math.hypot(a, b)
-        signed_dist = (a * cx + b * cy + c) / denom if denom != 0 else 0.0
-        
-        return signed_dist, is_within_segment
     
     def _draw_counts(self, frame, session_data):
         """Draw vehicle counts on frame"""

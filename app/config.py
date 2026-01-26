@@ -14,6 +14,7 @@ class Config:
     FIREBASE_DATABASE_URL = os.environ.get('FIREBASE_DATABASE_URL')
     
     # Model
+    MODEL_PATH = os.environ.get('MODEL_PATH', 'model_data/checkpoint_best_total.pth')
     CONFIDENCE_THRESHOLD = 0.5
     FRAME_WIDTH = 672
     FRAME_HEIGHT = 448

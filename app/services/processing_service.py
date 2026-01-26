@@ -8,6 +8,8 @@ from app import socketio
 from app.services.video_processor import VideoProcessor
 from app.services.firebase_service import FirebaseService
 from app.models import SessionData
+from app.config import Config
+from app.utils.math_utils import calculate_line_signed_distance
 
 # Global state to track processing jobs
 processing_jobs = {}
@@ -76,7 +78,7 @@ def _process_video_background(job: ProcessingJob):
     
     try:
         # Initialize services
-        video_processor = VideoProcessor(model_path="model_data/checkpoint_best_total.pth")
+        video_processor = VideoProcessor(model_path=Config.MODEL_PATH)
         firebase_service = FirebaseService()
         
         # Create session data
@@ -270,7 +272,7 @@ def _process_frame_detections(detections, line_points, track_class, track_last_d
         lp1 = (int(line_points[0][0]), int(line_points[0][1]))
         lp2 = (int(line_points[1][0]), int(line_points[1][1]))
         
-        dist, is_within = _line_signed_distance(lp1, lp2, (cx, cy))
+        dist, is_within = calculate_line_signed_distance(lp1, lp2, (cx, cy))
         
         prev_data = track_last_dist.get(tracker_id)
         track_class[tracker_id] = int(class_id)
@@ -308,34 +310,6 @@ def _process_frame_detections(detections, line_points, track_class, track_last_d
                 counted_track_ids.add(tracker_id)
         
         track_last_dist[tracker_id] = (dist, is_within)
-
-
-def _line_signed_distance(p1, p2, centroid):
-    """Calculate signed distance from point to line"""
-    import math
-    x1, y1 = p1
-    x2, y2 = p2
-    cx, cy = centroid
-    
-    dx = x2 - x1
-    dy = y2 - y1
-    line_len_sq = dx * dx + dy * dy
-    
-    if line_len_sq == 0:
-        return 0.0, False
-    
-    t = ((cx - x1) * dx + (cy - y1) * dy) / line_len_sq
-    margin = 0.1
-    is_within_segment = -margin <= t <= 1.0 + margin
-    
-    a = y2 - y1
-    b = x1 - x2
-    c = x2 * y1 - x1 * y2
-    denom = math.hypot(a, b)
-    signed_dist = (a * cx + b * cy + c) / denom if denom != 0 else 0.0
-    
-    return signed_dist, is_within_segment
-
 
 # SocketIO event emitters
 def _emit_status_update(job: ProcessingJob):
