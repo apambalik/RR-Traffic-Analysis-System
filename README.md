@@ -44,10 +44,14 @@ rr-traffic-analysis-system/
 │   │   └── js/
 │   │       ├── dashboard.js     # Charts.js logic for polling Firebase
 │   │       └── setup_canvas.js  # Renamed: Logic for drawing the line over the video frame
-│   └── templates/
-│       ├── base.html
-│       ├── dashboard.html
-│       └── setup.html
+│   ├── templates/
+│   │   ├── base.html
+│   │   ├── dashboard.html
+│   │   └── setup.html
+│   └── utils/
+│       ├── __init__.py
+│       └── math_utils.py
+│       
 ├── model_data/                  # Store .pt weights
 ├── uploads/                     # Store temp user videos here
 ├── output/                      # Processed videos
