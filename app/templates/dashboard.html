@@ -1,235 +1,174 @@
 {% extends "base.html" %}
 
-{% block title %}Dashboard - R&R Vehicle Analytics{% endblock %}
-
 {% block content %}
-<!-- Processing Status Banner -->
-<div id="processing-banner" class="processing-banner {% if not processing_status or processing_status.status == 'completed' %}hidden{% endif %}">
-    <div class="processing-content">
-        <div class="spinner-small"></div>
-        <span id="processing-text">
-            {% if processing_status %}
-                Processing video... {{ processing_status.progress }}%
-            {% else %}
-                Initializing...
-            {% endif %}
-        </span>
-        <div class="progress-bar-inline">
-            <div class="progress-bar-fill-inline" id="progress-bar" style="width: {% if processing_status %}{{ processing_status.progress }}{% else %}0{% endif %}%"></div>
+<div class="workbench-container">
+    
+    <aside class="workbench-sidebar">
+        <div class="sidebar-header">
+            <h2><i data-feather="settings"></i> Configuration</h2>
         </div>
-    </div>
-</div>
 
-<!-- Top Section: Camera Feeds + KPIs -->
-<div class="dashboard-top">
-    <!-- Entry Camera -->
-    <div class="camera-card">
-        <div class="camera-header">
-            <span class="camera-title">ENTRY CAM</span>
-            <span class="live-indicator" id="entry-live-indicator">
-                <span class="live-dot"></span>
-                <span id="entry-status">{% if processing_status and processing_status.status == 'processing' %}PROCESSING{% else %}IDLE{% endif %}</span>
-            </span>
+        <div class="config-group">
+            <label class="form-label">Location Name</label>
+            <input type="text" id="location-input" class="form-input" placeholder="e.g. R&R Skudai" value="{{ session.get('location', 'Unknown') }}">
         </div>
-        <div class="camera-feed" id="entry-cam">
-            <div class="camera-placeholder">
-                <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-                    <path d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"/>
-                </svg>
-                <span>No Feed</span>
+
+        <div class="config-group">
+            <label class="form-label">Session Date/Time</label>
+            <input type="datetime-local" id="session-time" class="form-input">
+            <small class="text-secondary">Establishes the timeline anchor.</small>
+        </div>
+
+        <hr class="sidebar-divider">
+
+        <label class="form-label">Select Camera to Configure</label>
+        <div class="camera-tabs">
+            <button class="tab-btn active" onclick="switchCameraContext('ENTRY')" id="tab-entry">
+                <i data-feather="log-in"></i> Entry Cam
+            </button>
+            <button class="tab-btn" onclick="switchCameraContext('EXIT')" id="tab-exit">
+                <i data-feather="log-out"></i> Exit Cam
+            </button>
+        </div>
+
+        <div class="source-config-card">
+            <div class="status-indicator">
+                <span class="status-dot" id="config-status-dot"></span>
+                <span id="config-status-text">Not Configured</span>
+            </div>
+
+            <div class="config-group mt-2">
+                <label class="form-label">Video Source</label>
+                <input type="file" id="video-upload" accept="video/*" class="form-input" style="display: none;">
+                <button class="btn btn-outline btn-full" onclick="document.getElementById('video-upload').click()">
+                    <i data-feather="upload"></i> Upload Video File
+                </button>
+                <div id="file-name-display" class="file-name text-truncate mt-1">No file selected</div>
+            </div>
+
+            <div class="config-group">
+                <label class="form-label">Instructions</label>
+                <ul class="instruction-list">
+                    <li>1. Upload a video.</li>
+                    <li>2. Draw the crossing line on the canvas.</li>
+                    <li>3. Repeat for other camera.</li>
+                </ul>
+                <button class="btn btn-sm btn-secondary mt-2" id="clear-line-btn" disabled>
+                    <i data-feather="refresh-cw"></i> Redraw Line
+                </button>
             </div>
         </div>
-    </div>
 
-    <!-- Center KPIs -->
-    <div class="kpi-center">
-        <div class="kpi-main">
-            <div class="kpi-label-small">ESTIMATED PEOPLE ON-SITE</div>
-            <div class="kpi-value-large" id="people-range">
-                {% if session_data and session_data.statistics %}
-                    {{ session_data.statistics.people_on_site_min }} - {{ session_data.statistics.people_on_site_max }}
-                {% else %}
-                    0 - 0
-                {% endif %}
-            </div>
-            <div class="kpi-sublabel">Min - Max Capacity</div>
-        </div>
-
-        <div class="kpi-row">
-            <div class="kpi-item">
-                <div class="kpi-number blue" id="vehicles-in">
-                    {% if session_data and session_data.statistics %}
-                        {{ session_data.statistics.vehicles_in }}
-                    {% else %}
-                        0
-                    {% endif %}
+        <div class="sidebar-footer">
+            <button id="btn-start-analysis" class="btn btn-primary btn-full btn-lg" onclick="startAnalysis()">
+                <i data-feather="play"></i> Start Analysis
+            </button>
+            <div id="processing-status" class="hidden mt-2">
+                <div class="progress-bar">
+                    <div class="progress-bar-fill" style="width: 0%"></div>
                 </div>
-                <div class="kpi-label-small">VEHICLES IN</div>
+                <div class="text-center mt-1"><small>Processing...</small></div>
             </div>
-            <div class="kpi-divider"></div>
-            <div class="kpi-item">
-                <div class="kpi-number red" id="vehicles-out">
-                    {% if session_data and session_data.statistics %}
-                        {{ session_data.statistics.vehicles_out }}
-                    {% else %}
-                        0
-                    {% endif %}
+        </div>
+    </aside>
+
+    <main class="workbench-main">
+        
+        <section class="video-stage-panel">
+            <div class="stage-header">
+                <div class="stage-title">
+                    <span class="badge badge-processing hidden" id="live-badge">LIVE ANALYSIS</span>
+                    <h3 id="stage-label">Entry Camera Preview</h3>
                 </div>
-                <div class="kpi-label-small">VEHICLES OUT</div>
+                <div class="stage-controls">
+                    <span class="text-secondary" style="font-size: 0.9rem;">Mode: <span id="mode-label">Setup</span></span>
+                </div>
             </div>
-        </div>
 
-        <div class="kpi-net">
-            <strong>Net Vehicles: </strong>
-            <span id="net-vehicles">
-                {% if session_data and session_data.statistics %}
-                    {{ session_data.statistics.net_vehicles }}
-                {% else %}
-                    0
-                {% endif %}
-            </span>
-        </div>
-    </div>
+            <div class="video-wrapper" id="video-container">
+                <canvas id="setup-canvas"></canvas>
+                
+                <img id="live-feed" src="" class="hidden" alt="Analysis Feed">
 
-    <!-- Exit Camera -->
-    <div class="camera-card">
-        <div class="camera-header">
-            <span class="camera-title">EXIT CAM</span>
-            <span class="live-indicator">
-                <span class="live-dot"></span>
-                IDLE
-            </span>
-        </div>
-        <div class="camera-feed" id="exit-cam">
-            <div class="camera-placeholder">
-                <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-                    <path d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"/>
-                </svg>
-                <span>No Feed</span>
+                <video id="preview-player" style="display:none;" muted playsinline></video>
+
+                <div id="stage-placeholder" class="stage-placeholder">
+                    <i data-feather="video" style="width: 48px; height: 48px; opacity: 0.5;"></i>
+                    <p>Select a camera and upload video to begin configuration</p>
+                </div>
             </div>
-        </div>
-    </div>
+        </section>
+
+        <section class="analytics-panel">
+            <h3 class="panel-title">Session Analytics</h3>
+            
+            <div class="kpi-grid">
+                <div class="kpi-card">
+                    <div class="kpi-icon blue"><i data-feather="truck"></i></div>
+                    <div class="kpi-content">
+                        <div class="kpi-label">Total Vehicles</div>
+                        <div class="kpi-value" id="total-vehicles">0</div>
+                    </div>
+                </div>
+                <div class="kpi-card">
+                    <div class="kpi-icon green"><i data-feather="arrow-right-circle"></i></div>
+                    <div class="kpi-content">
+                        <div class="kpi-label">Entry Flow</div>
+                        <div class="kpi-value positive" id="in-count">0</div>
+                    </div>
+                </div>
+                <div class="kpi-card">
+                    <div class="kpi-icon orange"><i data-feather="arrow-left-circle"></i></div>
+                    <div class="kpi-content">
+                        <div class="kpi-label">Exit Flow</div>
+                        <div class="kpi-value negative" id="out-count">0</div>
+                    </div>
+                </div>
+                <div class="kpi-card">
+                    <div class="kpi-icon red"><i data-feather="users"></i></div>
+                    <div class="kpi-content">
+                        <div class="kpi-label">Est. People</div>
+                        <div class="kpi-value" id="total-people">0</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="grid-2">
+                <div class="card">
+                    <div class="card-header">
+                        <div class="card-title"><i data-feather="bar-chart-2"></i> Vehicle Classification</div>
+                    </div>
+                    <div class="chart-container">
+                        <canvas id="vehicle-chart"></canvas>
+                    </div>
+                </div>
+                <div class="card">
+                    <div class="card-header">
+                        <div class="card-title"><i data-feather="list"></i> Live Event Log</div>
+                        <span class="badge badge-processing" id="log-count">0 events</span>
+                    </div>
+                    <div class="event-log" id="event-log">
+                        </div>
+                </div>
+            </div>
+        </section>
+    </main>
 </div>
 
-<!-- Middle Section: Log + Distribution Chart -->
-<div class="dashboard-middle">
-    <!-- Real-time Log -->
-    <div class="card">
-        <div class="card-header">
-            <span class="card-title">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/>
-                </svg>
-                Real-time Log
-            </span>
-            <span class="event-count" id="event-count">
-                {% if session_data and session_data.events %}
-                    {{ session_data.events|length }} events
-                {% else %}
-                    0 events
-                {% endif %}
-            </span>
-        </div>
-        <div class="event-log" id="event-log">
-            <table class="data-table">
-                <thead>
-                    <tr>
-                        <th>Timestamp</th>
-                        <th>Vehicle Type</th>
-                        <th>Direction</th>
-                        <th>Seats (Min - Max)</th>
-                    </tr>
-                </thead>
-                <tbody id="event-log-body">
-                    {% if session_data and session_data.events %}
-                        {% for event in session_data.events[-10:]|reverse %}
-                        <tr>
-                            <td>{{ event.timestamp[-8:] if event.timestamp else '--:--:--' }}</td>
-                            <td><span class="badge badge-{{ event.vehicle_type|lower }}">{{ event.vehicle_type }}</span></td>
-                            <td><span class="badge {% if event.direction == 'IN' %}badge-in{% else %}badge-out{% endif %}">{{ event.direction }}</span></td>
-                            <td>{{ event.seats_min }} - {{ event.seats_max }}</td>
-                        </tr>
-                        {% endfor %}
-                    {% else %}
-                        <tr class="empty-row">
-                            <td colspan="4" class="text-center text-secondary">No events recorded yet</td>
-                        </tr>
-                    {% endif %}
-                </tbody>
-            </table>
-        </div>
-    </div>
+<script src="https://cdn.socket.io/4.6.0/socket.io.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script src="https://unpkg.com/feather-icons"></script>
 
-    <!-- Vehicle Distribution Chart -->
-    <div class="card">
-        <div class="card-header">
-            <span class="card-title">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <path d="M18 20V10M12 20V4M6 20v-6"/>
-                </svg>
-                Vehicle Distribution
-            </span>
-        </div>
-        <div class="chart-container">
-            <canvas id="distributionChart"></canvas>
-        </div>
-    </div>
-</div>
+<script src="{{ url_for('static', filename='js/dashboard.js') }}"></script> 
+<script src="{{ url_for('static', filename='js/setup_canvas.js') }}"></script>
 
-<!-- Bottom Section: People Flow Trend -->
-<div class="card">
-    <div class="card-header">
-        <span class="card-title">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <path d="M3 3v18h18M7 16l4-4 4 4 5-5"/>
-            </svg>
-            People Flow Trend
-        </span>
-        <div class="time-filter">
-            <button class="time-btn active" data-period="hour">Hour</button>
-            <button class="time-btn" data-period="day">Day</button>
-            <button class="time-btn" data-period="week">Week</button>
-            <button class="time-btn" data-period="month">Month</button>
-            <button class="time-btn" data-period="year">Year</button>
-        </div>
-    </div>
-    <div class="chart-container chart-large">
-        <canvas id="flowChart"></canvas>
-    </div>
-    <div class="chart-legend">
-        <span class="legend-item">
-            <span class="legend-color blue"></span>
-            Actual Flow
-        </span>
-        <span class="legend-item">
-            <span class="legend-color red"></span>
-            Predicted Flow
-        </span>
-    </div>
-</div>
-
-{% if not session_id %}
-<div class="no-session-overlay" id="no-session-overlay">
-    <div class="no-session-content">
-        <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-            <path d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"/>
-        </svg>
-        <h2>No Active Session</h2>
-        <p>Configure a video source to start tracking vehicles</p>
-        <a href="{{ url_for('setup.configuration') }}" class="btn btn-primary">Go to Setup</a>
-    </div>
-</div>
-{% endif %}
-
-<!-- Store session data for JavaScript -->
 <script>
-    window.SESSION_ID = "{{ session_id or '' }}";
-    window.LOCATION = "{{ location or 'Unknown' }}";
+    // Quick initialize for icons
+    feather.replace();
+    
+    // Set default datetime to now
+    const now = new Date();
+    now.setMinutes(now.getMinutes() - now.getTimezoneOffset());
+    document.getElementById('session-time').value = now.toISOString().slice(0,16);
 </script>
-{% endblock %}
-
-{% block scripts %}
-<!-- Socket.IO Client -->
-<script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.6.0/socket.io.min.js"></script>
-<script src="{{ url_for('static', filename='js/dashboard.js') }}"></script>
 {% endblock %}

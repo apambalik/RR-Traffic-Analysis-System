@@ -1252,3 +1252,236 @@ body {
         opacity: 0;
     }
 }
+
+.workbench-container {
+    display: flex;
+    height: calc(100vh - 70px); /* Subtract Navbar height approx */
+    overflow: hidden;
+    background-color: var(--background-color);
+}
+
+/* --- SIDEBAR --- */
+.workbench-sidebar {
+    width: 320px;
+    background-color: var(--card-background);
+    border-right: 1px solid var(--border-color);
+    display: flex;
+    flex-direction: column;
+    padding: 1.5rem;
+    overflow-y: auto;
+    flex-shrink: 0;
+    z-index: 20;
+}
+
+.sidebar-header {
+    margin-bottom: 1.5rem;
+    color: var(--text-primary);
+}
+
+.sidebar-header h2 {
+    font-size: 1.25rem;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.sidebar-divider {
+    border: 0;
+    border-top: 1px solid var(--border-color);
+    margin: 1.5rem 0;
+}
+
+.config-group {
+    margin-bottom: 1.25rem;
+}
+
+/* Camera Tabs */
+.camera-tabs {
+    display: flex;
+    background-color: var(--background-color);
+    padding: 0.25rem;
+    border-radius: 0.5rem;
+    margin-bottom: 1rem;
+}
+
+.tab-btn {
+    flex: 1;
+    border: none;
+    background: transparent;
+    padding: 0.5rem;
+    border-radius: 0.375rem;
+    color: var(--text-secondary);
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+}
+
+.tab-btn:hover {
+    color: var(--text-primary);
+}
+
+.tab-btn.active {
+    background-color: #ffffff;
+    color: var(--primary-color);
+    box-shadow: 0 1px 2px rgba(0,0,0,0.1);
+}
+
+/* Config Card */
+.source-config-card {
+    background-color: #f8fafc;
+    border: 1px solid var(--border-color);
+    border-radius: 0.5rem;
+    padding: 1rem;
+}
+
+.status-indicator {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.875rem;
+    font-weight: 600;
+}
+
+.status-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background-color: var(--secondary-color);
+}
+
+.status-dot.ready { background-color: var(--success-color); }
+.status-dot.error { background-color: var(--danger-color); }
+
+.instruction-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+}
+
+.instruction-list li {
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+    margin-bottom: 0.25rem;
+    padding-left: 0.5rem;
+    border-left: 2px solid var(--border-color);
+}
+
+.file-name {
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+}
+
+.sidebar-footer {
+    margin-top: auto;
+    padding-top: 1.5rem;
+}
+
+/* --- MAIN STAGE --- */
+.workbench-main {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    overflow-y: auto;
+    padding: 1.5rem;
+    gap: 1.5rem;
+}
+
+.video-stage-panel {
+    background-color: var(--card-background);
+    border-radius: 0.75rem;
+    box-shadow: var(--shadow);
+    padding: 1rem;
+    display: flex;
+    flex-direction: column;
+}
+
+.stage-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1rem;
+    padding: 0 0.5rem;
+}
+
+.stage-title {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+}
+
+.stage-title h3 {
+    font-size: 1.125rem;
+    font-weight: 600;
+    margin: 0;
+}
+
+.video-wrapper {
+    position: relative;
+    width: 100%;
+    background-color: #0f172a;
+    border-radius: 0.5rem;
+    overflow: hidden;
+    /* Maintain specific aspect ratio or adapt to content */
+    min-height: 480px; 
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+/* Stage Elements */
+#setup-canvas, 
+#live-feed {
+    max-width: 100%;
+    max-height: 70vh;
+    display: block;
+}
+
+#setup-canvas {
+    cursor: crosshair;
+}
+
+.stage-placeholder {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    color: #64748b;
+    gap: 1rem;
+}
+
+/* --- ANALYTICS PANEL --- */
+.analytics-panel {
+    /* Uses existing grid styles, just ensuring spacing */
+    padding-bottom: 2rem;
+}
+
+.panel-title {
+    font-size: 1.25rem;
+    font-weight: 700;
+    margin-bottom: 1rem;
+    color: var(--text-primary);
+}
+
+/* Responsive adjustments */
+@media (max-width: 1024px) {
+    .workbench-container {
+        flex-direction: column;
+        height: auto;
+        overflow: visible;
+    }
+
+    .workbench-sidebar {
+        width: 100%;
+        border-right: none;
+        border-bottom: 1px solid var(--border-color);
+        max-height: 500px; /* Optional cap */
+    }
+
+    .video-wrapper {
+        min-height: 300px;
+    }
+}
