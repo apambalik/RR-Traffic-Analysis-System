@@ -22,6 +22,13 @@ def configuration():
 @setup_bp.route('/upload-video', methods=['POST'])
 def upload_video():
     """Handle video upload"""
+    try:
+        # clear old files in uploads folder
+        for f in os.listdir(Config.UPLOAD_FOLDER):
+            os.remove(os.path.join(Config.UPLOAD_FOLDER, f))
+    except Exception:
+        pass
+    
     if 'video' not in request.files:
         return jsonify({'error': 'No video file'}), 400
     

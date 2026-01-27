@@ -62,7 +62,10 @@ rr-traffic-analysis-system/
 
 ## Plan
 
-✅**Phase 1:** Get single video working with background processing + WebSocket updates first.\
-🛠 **Phase 2:** Add the second video (exit cam) with parallel processing.\
-**Phase 3:** Add video streaming to dashboard.\
-**Phase 4:** Add timestamp editing for historical footage.
+✅**Phase 1:** Get single video working with background processing + WebSocket updates first.
+
+🛠 **Phase 2:** Add the second video (exit cam) with parallel processing. (means in setup page, user can select the footage/live cam and draw the counting line for both entry and exit in one go)
+
+**Phase 3:** Add video streaming to dashboard. (show the annotated vehicles crossing the line in dashboard)
+
+**Phase 4:** Add timestamp editing for historical footage, add stop/cancel button, resume button and configure button to dashboard page.

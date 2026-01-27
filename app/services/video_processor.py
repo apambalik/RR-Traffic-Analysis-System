@@ -3,7 +3,7 @@ import os
 from pathlib import Path
 from PIL import Image
 import supervision as sv
-import math
+import time
 import torch
 from rfdetr import RFDETRBase
 from datetime import datetime
@@ -78,10 +78,17 @@ class VideoProcessor:
         frame_idx = 0
         
         try:
+            retry_count = 0
             while True:
                 ret, frame = cap.read()
                 if not ret:
+                    if isinstance(video_path, str) and video_path.startswith(('rtsp://', 'http://')):
+                        retry_count += 1
+                        if retry_count < 5:
+                            time.sleep(1)
+                            continue
                     break
+                retry_count = 0
                 
                 resized_frame = cv2.resize(frame, (Config.FRAME_WIDTH, Config.FRAME_HEIGHT))
                 rgb_frame = cv2.cvtColor(resized_frame, cv2.COLOR_BGR2RGB)
