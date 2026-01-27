@@ -8,10 +8,24 @@ class DashboardManager {
         this.charts = {};
         this.eventCount = 0;
         this.maxLogEvents = 50;
-        
+        this.cameraStats = {
+            'ENTRY': this.createEmptyStats(),
+            'EXIT': this.createEmptyStats()
+        };
         this.init();
     }
-    
+
+    createEmptyStats() {
+        return {
+            vehicles_in: 0,
+            vehicles_out: 0,
+            net_vehicles: 0,
+            people_on_site_min: 0,
+            people_on_site_max: 0,
+            vehicle_distribution: {}
+        };
+    }
+
     init() {
         this.setupCharts();
         this.setupSocketIO();
@@ -26,116 +40,112 @@ class DashboardManager {
     setupSocketIO() {
         // Connect to SocketIO server
         this.socket = io();
-        
         this.socket.on('connect', () => {
-            console.log('Connected to server');
-            if (this.sessionId) {
-                this.socket.emit('join_session', { session_id: this.sessionId });
-            }
+            if (this.sessionId) this.socket.emit('join_session', { session_id: this.sessionId });
         });
-        
-        this.socket.on('disconnect', () => {
-            console.log('Disconnected from server');
-        });
-        
-        this.socket.on('connected', (data) => {
-            console.log('Server acknowledged connection:', data);
-        });
-        
-        // Processing status updates
+
         this.socket.on('processing_status', (data) => {
-            console.log('Processing status:', data);
-            this.updateProcessingStatus(data);
+            if (window.workbenchManager) window.workbenchManager.handleProcessingUpdate(data);
         });
         
-        // Progress updates
         this.socket.on('processing_progress', (data) => {
-            console.log('Progress:', data.progress + '%');
-            this.updateProgress(data.progress);
+            if (window.workbenchManager) window.workbenchManager.handleProgressUpdate(data);
         });
         
-        // New vehicle event
         this.socket.on('vehicle_event', (data) => {
-            console.log('New vehicle event:', data.event);
             this.addEventToLog(data.event);
         });
         
-        // Statistics update
+        // CHANGED: Handle statistics per camera
         this.socket.on('statistics_update', (data) => {
-            console.log('Statistics update:', data.statistics);
-            this.updateStatistics(data.statistics);
-            this.updateDistributionChart(data.statistics.vehicle_distribution);
+            if (data.camera_role) {
+                this.updateCameraStatistics(data.camera_role, data.statistics);
+            } else {
+                // Fallback for initial load or legacy events
+                this.updateAggregatedStatistics(data.statistics);
+            }
         });
         
-        // Processing complete
         this.socket.on('processing_complete', (data) => {
-            console.log('Processing complete:', data);
             this.onProcessingComplete(data);
+            if (window.workbenchManager) {
+                window.workbenchManager.handleProcessingUpdate({
+                    camera_role: data.camera_role,
+                    status: 'completed',
+                    progress: 100
+                });
+            }
         });
         
-        // Processing error
         this.socket.on('processing_error', (data) => {
             console.error('Processing error:', data.error);
             this.onProcessingError(data.error);
+             if (window.workbenchManager) {
+                window.workbenchManager.handleProcessingUpdate({
+                    camera_role: data.camera_role,
+                    status: 'error',
+                    progress: 0
+                });
+            }
         });
     }
     
+    // Update stats for a specific camera and then refresh display
+    updateCameraStatistics(role, stats) {
+        this.cameraStats[role] = stats;
+        this.refreshDashboard();
+    }
+
+    // Calculate totals and update UI
+    refreshDashboard() {
+        const entry = this.cameraStats.ENTRY;
+        const exit = this.cameraStats.EXIT;
+        
+        // Sum distribution
+        const totalDist = {};
+        const allTypes = new Set([
+            ...Object.keys(entry.vehicle_distribution || {}), 
+            ...Object.keys(exit.vehicle_distribution || {})
+        ]);
+        
+        allTypes.forEach(type => {
+            totalDist[type] = (entry.vehicle_distribution[type] || 0) + 
+                            (exit.vehicle_distribution[type] || 0);
+        });
+
+        const aggregated = {
+            vehicles_in: (entry.vehicles_in || 0) + (exit.vehicles_in || 0),
+            vehicles_out: (entry.vehicles_out || 0) + (exit.vehicles_out || 0),
+            net_vehicles: (entry.net_vehicles || 0) + (exit.net_vehicles || 0),
+            people_on_site_min: (entry.people_on_site_min || 0) + (exit.people_on_site_min || 0),
+            people_on_site_max: (entry.people_on_site_max || 0) + (exit.people_on_site_max || 0),
+            vehicle_distribution: totalDist
+        };
+        
+        this.updateAggregatedStatistics(aggregated);
+    }    
+    
     async fetchInitialData() {
         try {
-            // Fetch statistics
             const statsResponse = await fetch('/api/statistics');
             if (statsResponse.ok) {
                 const stats = await statsResponse.json();
-                this.updateStatistics(stats);
-                if (stats.vehicle_distribution) {
-                    this.updateDistributionChart(stats.vehicle_distribution);
-                }
+                // Initial load is likely the total from DB, so we display it directly
+                // Note: Real-time updates will takeover shortly
+                this.updateAggregatedStatistics(stats);
             }
-            
-            // Fetch events
-            const eventsResponse = await fetch('/api/events');
-            if (eventsResponse.ok) {
-                const events = await eventsResponse.json();
-                this.eventCount = events.length;
-                document.getElementById('event-count').textContent = `${this.eventCount} events`;
-            }
+            // ... events fetch ...
         } catch (error) {
-            console.error('Error fetching initial data:', error);
+            console.error(error);
         }
     }
     
+    // Legacy support or global banner
     updateProcessingStatus(data) {
-        const banner = document.getElementById('processing-banner');
-        const text = document.getElementById('processing-text');
-        const entryStatus = document.getElementById('entry-status');
-        
-        if (data.status === 'processing') {
-            banner.classList.remove('hidden');
-            text.textContent = `Processing video... ${data.progress}%`;
-            if (entryStatus) entryStatus.textContent = 'PROCESSING';
-        } else if (data.status === 'completed') {
-            banner.classList.add('hidden');
-            if (entryStatus) entryStatus.textContent = 'COMPLETED';
-        } else if (data.status === 'error') {
-            banner.classList.add('hidden');
-            if (entryStatus) entryStatus.textContent = 'ERROR';
-        }
+        // Implementation moved to WorkbenchManager for specific handling
     }
     
-    updateProgress(progress) {
-        const progressBar = document.getElementById('progress-bar');
-        const text = document.getElementById('processing-text');
-        
-        if (progressBar) {
-            progressBar.style.width = `${progress}%`;
-        }
-        if (text) {
-            text.textContent = `Processing video... ${progress}%`;
-        }
-    }
-    
-    updateStatistics(stats) {
-        // Update KPI values
+    updateAggregatedStatistics(stats) {
         const vehiclesIn = document.getElementById('vehicles-in');
         const vehiclesOut = document.getElementById('vehicles-out');
         const netVehicles = document.getElementById('net-vehicles');
@@ -146,9 +156,11 @@ class DashboardManager {
         if (netVehicles) netVehicles.textContent = stats.net_vehicles || 0;
         
         if (peopleRange) {
-            const min = stats.people_on_site_min || 0;
-            const max = stats.people_on_site_max || 0;
-            peopleRange.textContent = `${min} - ${max}`;
+            peopleRange.textContent = `${stats.people_on_site_min} - ${stats.people_on_site_max}`;
+        }
+        
+        if (stats.vehicle_distribution) {
+            this.updateDistributionChart(stats.vehicle_distribution);
         }
     }
     
@@ -156,17 +168,14 @@ class DashboardManager {
         const tbody = document.getElementById('event-log-body');
         if (!tbody) return;
         
-        // Remove "no events" message if present
         const emptyRow = tbody.querySelector('.empty-row');
         if (emptyRow) {
             emptyRow.remove();
         }
         
-        // Create new row
         const row = document.createElement('tr');
         row.className = 'new-event';
         
-        // Format timestamp
         let timestamp = '--:--:--';
         if (event.timestamp) {
             const ts = event.timestamp;
@@ -177,7 +186,6 @@ class DashboardManager {
             }
         }
         
-        // Direction badge class
         const directionClass = event.direction === 'IN' ? 'badge-in' : 'badge-out';
         
         row.innerHTML = `
@@ -187,19 +195,15 @@ class DashboardManager {
             <td>${event.seats_min} - ${event.seats_max}</td>
         `;
         
-        // Insert at top
         tbody.insertBefore(row, tbody.firstChild);
         
-        // Remove excess rows
         while (tbody.children.length > this.maxLogEvents) {
             tbody.removeChild(tbody.lastChild);
         }
         
-        // Update event count
         this.eventCount++;
         document.getElementById('event-count').textContent = `${this.eventCount} events`;
         
-        // Highlight animation
         setTimeout(() => {
             row.classList.remove('new-event');
         }, 1000);
@@ -217,16 +221,7 @@ class DashboardManager {
     }
     
     onProcessingComplete(data) {
-        const banner = document.getElementById('processing-banner');
-        const entryStatus = document.getElementById('entry-status');
-        
-        if (banner) banner.classList.add('hidden');
-        if (entryStatus) entryStatus.textContent = 'COMPLETED';
-        
-        // Show completion notification
         this.showNotification('Processing Complete', 'Video analysis finished successfully!', 'success');
-        
-        // Update final statistics
         if (data.statistics) {
             this.updateStatistics(data.statistics);
             if (data.statistics.vehicle_distribution) {
@@ -236,17 +231,10 @@ class DashboardManager {
     }
     
     onProcessingError(error) {
-        const banner = document.getElementById('processing-banner');
-        const entryStatus = document.getElementById('entry-status');
-        
-        if (banner) banner.classList.add('hidden');
-        if (entryStatus) entryStatus.textContent = 'ERROR';
-        
         this.showNotification('Processing Error', error, 'error');
     }
     
     showNotification(title, message, type = 'info') {
-        // Create notification element
         const notification = document.createElement('div');
         notification.className = `notification notification-${type}`;
         notification.innerHTML = `
@@ -255,8 +243,6 @@ class DashboardManager {
         `;
         
         document.body.appendChild(notification);
-        
-        // Auto-remove after 5 seconds
         setTimeout(() => {
             notification.classList.add('fade-out');
             setTimeout(() => notification.remove(), 300);
@@ -264,7 +250,6 @@ class DashboardManager {
     }
     
     setupCharts() {
-        // Vehicle Distribution Chart
         const distCtx = document.getElementById('distributionChart');
         if (distCtx) {
             this.charts.distribution = new Chart(distCtx, {
@@ -281,65 +266,10 @@ class DashboardManager {
                 options: {
                     responsive: true,
                     maintainAspectRatio: false,
-                    animation: {
-                        duration: 300
-                    },
-                    plugins: {
-                        legend: { display: false }
-                    },
+                    plugins: { legend: { display: false } },
                     scales: {
-                        y: {
-                            beginAtZero: true,
-                            grid: { color: '#e2e8f0' }
-                        },
-                        x: {
-                            grid: { display: false }
-                        }
-                    }
-                }
-            });
-        }
-
-        // People Flow Trend Chart
-        const flowCtx = document.getElementById('flowChart');
-        if (flowCtx) {
-            this.charts.flow = new Chart(flowCtx, {
-                type: 'line',
-                data: {
-                    labels: [],
-                    datasets: [
-                        {
-                            label: 'Actual Flow',
-                            data: [],
-                            borderColor: '#3b82f6',
-                            backgroundColor: 'rgba(59, 130, 246, 0.2)',
-                            fill: true,
-                            tension: 0.4
-                        },
-                        {
-                            label: 'Predicted Flow',
-                            data: [],
-                            borderColor: '#ef4444',
-                            backgroundColor: 'rgba(239, 68, 68, 0.2)',
-                            fill: true,
-                            tension: 0.4
-                        }
-                    ]
-                },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    plugins: {
-                        legend: { display: false }
-                    },
-                    scales: {
-                        y: {
-                            beginAtZero: true,
-                            grid: { color: '#e2e8f0' }
-                        },
-                        x: {
-                            grid: { display: false }
-                        }
+                        y: { beginAtZero: true, grid: { color: '#e2e8f0' } },
+                        x: { grid: { display: false } }
                     }
                 }
             });
@@ -351,13 +281,10 @@ class DashboardManager {
             btn.addEventListener('click', () => {
                 document.querySelectorAll('.time-btn').forEach(b => b.classList.remove('active'));
                 btn.classList.add('active');
-                // TODO: Fetch data for selected time period
             });
         });
     }
 }
-
-// Note: Initialization moved to end of file to include WorkbenchManager
 
 class WorkbenchManager {
     constructor() {
@@ -369,8 +296,8 @@ class WorkbenchManager {
         
         // Track camera configurations separately
         this.cameraConfigs = {
-            'ENTRY': { hasVideo: false, hasLine: false, videoName: '' },
-            'EXIT': { hasVideo: false, hasLine: false, videoName: '' }
+            'ENTRY': { hasVideo: false, hasLine: false, videoName: '', processingStatus: 'pending', progress: 0 },
+            'EXIT': { hasVideo: false, hasLine: false, videoName: '', processingStatus: 'pending', progress: 0 }
         };
 
         // Elements
@@ -388,7 +315,9 @@ class WorkbenchManager {
             processingStatus: document.getElementById('processing-status'),
             locationInput: document.getElementById('location-input'),
             modeLabel: document.getElementById('mode-label'),
-            liveBadge: document.getElementById('live-badge')
+            liveBadge: document.getElementById('live-badge'),
+            progressBar: document.getElementById('progress-bar'),
+            processingText: document.getElementById('processing-text')
         };
 
         this.init();
@@ -400,23 +329,17 @@ class WorkbenchManager {
     }
 
     setupEventListeners() {
-        // Handle Video Upload
         if (this.els.videoUpload) {
             this.els.videoUpload.addEventListener('change', (e) => this.handleVideoUpload(e));
         }
-
-        // Handle Clear/Redraw Line
         if (this.els.clearLineBtn) {
             this.els.clearLineBtn.addEventListener('click', () => this.resetLine());
         }
-
-        // Handle Start Analysis
         if (this.els.startBtn) {
             this.els.startBtn.addEventListener('click', () => this.startAnalysis());
         }
     }
 
-    // --- Camera Context Switching (Entry/Exit Tabs) ---
     switchCameraContext(role) {
         this.currentCameraRole = role;
         
@@ -425,11 +348,9 @@ class WorkbenchManager {
         const activeId = role === 'ENTRY' ? 'tab-entry' : 'tab-exit';
         document.getElementById(activeId).classList.add('active');
         
-        // Update Stage Label
         document.getElementById('stage-label').textContent = 
             `${role.charAt(0).toUpperCase() + role.slice(1).toLowerCase()} Camera Preview`;
 
-        // Update file name display
         const config = this.cameraConfigs[role];
         if (config.videoName) {
             this.els.fileName.textContent = config.videoName;
@@ -437,7 +358,6 @@ class WorkbenchManager {
             this.els.fileName.textContent = 'No file selected';
         }
         
-        // Load the frame for the selected camera if video exists
         if (config.hasVideo) {
             this.loadFirstFrame();
             this.updateConfigStatus(config.hasLine);
@@ -445,60 +365,101 @@ class WorkbenchManager {
                 this.els.clearLineBtn.disabled = false;
             }
         } else {
-            // No video for this camera - show placeholder
             this.els.canvas.style.display = 'none';
             this.els.placeholder.style.display = 'block';
             this.updateConfigStatus(false);
             this.els.clearLineBtn.disabled = true;
         }
+
+        // Update action panel UI to reflect status of THIS camera
+        this.updateActionPanelUI();
+    }
+    
+    // NEW: Handle processing updates from socket
+    handleProcessingUpdate(data) {
+        if (!data.camera_role) return;
+        
+        const config = this.cameraConfigs[data.camera_role];
+        if (config) {
+            config.processingStatus = data.status;
+            if (data.progress) config.progress = data.progress;
+            
+            if (this.currentCameraRole === data.camera_role) {
+                this.updateActionPanelUI();
+            }
+        }
     }
 
-    // --- Video Upload & First Frame Extraction ---
-    async handleVideoUpload(e) {
-        console.log('handleVideoUpload called', e);
+    handleProgressUpdate(data) {
+        if (!data.camera_role) return;
         
-        if (!e.target.files || !e.target.files.length) {
-            console.log('No files selected');
-            return;
+        const config = this.cameraConfigs[data.camera_role];
+        if (config) {
+            config.progress = data.progress;
+            if (config.processingStatus === 'pending') config.processingStatus = 'processing';
+            
+            if (this.currentCameraRole === data.camera_role) {
+                this.updateActionPanelUI();
+            }
         }
+    }
 
-        const file = e.target.files[0];
-        console.log('File selected:', file.name, 'Size:', file.size, 'Type:', file.type);
+    updateActionPanelUI() {
+        const config = this.cameraConfigs[this.currentCameraRole];
+        const status = config.processingStatus;
         
-        if (this.els.fileName) {
-            this.els.fileName.textContent = file.name;
+        if (status === 'processing') {
+             this.els.processingStatus.classList.remove('hidden');
+             this.els.startBtn.disabled = true;
+             this.els.startBtn.innerHTML = `<i data-feather="loader" class="spin"></i> Processing...`;
+             
+             if (this.els.progressBar) {
+                 this.els.progressBar.style.width = (config.progress || 0) + '%';
+             }
+             if (this.els.processingText) {
+                 this.els.processingText.textContent = `Processing... ${config.progress || 0}%`;
+             }
+             feather.replace();
+        } else if (status === 'completed') {
+             this.els.processingStatus.classList.add('hidden');
+             this.els.startBtn.disabled = true;
+             this.els.startBtn.innerHTML = `<i data-feather="check"></i> Completed`;
+             this.els.configStatusText.textContent = "Analysis Complete";
+             this.els.configStatusDot.className = "status-dot ready";
+             feather.replace();
+        } else {
+             // Pending or reset
+             this.els.processingStatus.classList.add('hidden');
+             this.els.startBtn.innerHTML = `<i data-feather="play"></i> Start Analysis`;
+             this.updateConfigStatus(config.hasLine); // Re-enable if ready
+             feather.replace();
         }
+    }
+
+    async handleVideoUpload(e) {
+        if (!e.target.files || !e.target.files.length) return;
+        const file = e.target.files[0];
+        this.els.fileName.textContent = file.name;
         
         const formData = new FormData();
         formData.append('video', file);
         formData.append('camera_role', this.currentCameraRole);
 
         try {
-            console.log('Uploading to /setup/upload-video for camera:', this.currentCameraRole);
-            
-            // Use existing endpoint from setup.py
             const response = await fetch('/setup/upload-video', {
                 method: 'POST',
                 body: formData
             });
-            
-            console.log('Response status:', response.status);
             const data = await response.json();
-            console.log('Response data:', data);
 
             if (data.success) {
-                // Update camera config
                 this.cameraConfigs[this.currentCameraRole].hasVideo = true;
                 this.cameraConfigs[this.currentCameraRole].videoName = file.name;
-                
-                console.log('Upload successful, loading first frame...');
                 this.loadFirstFrame();
             } else {
-                console.error('Upload failed:', data.error);
                 alert('Upload failed: ' + data.error);
             }
         } catch (error) {
-            console.error('Upload error:', error);
             alert('Error uploading video: ' + error.message);
         }
     }
@@ -509,38 +470,51 @@ class WorkbenchManager {
             const data = await response.json();
 
             if (data.frame) {
-                // UI State: Show Canvas, Hide Placeholder
                 this.els.placeholder.style.display = 'none';
                 this.els.canvas.style.display = 'block';
                 this.els.liveFeed.classList.add('hidden');
 
-                // Initialize Line Drawer
                 this.lineDrawer = new LineDrawer('setup-canvas');
                 await this.lineDrawer.loadImage('data:image/jpeg;base64,' + data.frame);
 
-                // If line points exist for this camera, restore them
                 if (data.line_points) {
                     this.lineDrawer.setLinePoints(data.line_points);
                     this.lineSet = true;
                     this.cameraConfigs[this.currentCameraRole].hasLine = true;
                     this.els.clearLineBtn.disabled = false;
                     this.updateConfigStatus(true);
-                } else {
-                    // Setup Callback for when line is drawn
-                    this.lineDrawer.onLineComplete = (points) => {
-                        this.lineSet = true;
-                        this.cameraConfigs[this.currentCameraRole].hasLine = true;
-                        this.els.clearLineBtn.disabled = false;
-                        this.updateConfigStatus(true);
-                    };
-                    
-                    // Update Status
-                    this.els.configStatusText.textContent = "Video Loaded. Draw Line.";
-                    this.els.configStatusDot.className = "status-dot error"; // Orange/Red until line drawn
                 }
+                
+                // NEW: Attach Callback with Auto-Save
+                this.lineDrawer.onLineComplete = (points) => {
+                    this.lineSet = true;
+                    this.cameraConfigs[this.currentCameraRole].hasLine = true;
+                    this.els.clearLineBtn.disabled = false;
+                    this.updateConfigStatus(true);
+                    
+                    // FIX: Automatically save line to backend
+                    this.saveLine(points);
+                };
             }
         } catch (error) {
             console.error('Error loading frame:', error);
+        }
+    }
+    
+    // Helper to auto-save
+    async saveLine(points) {
+        try {
+            await fetch('/setup/save-line', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ 
+                    line_points: points,
+                    camera_role: this.currentCameraRole
+                })
+            });
+            console.log('Line auto-saved');
+        } catch (e) {
+            console.error('Failed to auto-save line', e);
         }
     }
 
@@ -565,31 +539,19 @@ class WorkbenchManager {
         }
     }
 
-    // --- Processing ---
     async startAnalysis() {
         if (!this.lineSet || !this.lineDrawer) {
             alert("Please draw the counting line first.");
             return;
         }
 
-        // 1. Save Line for current camera
-        const linePoints = this.lineDrawer.getLinePoints();
-        await fetch('/setup/save-line', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ 
-                line_points: linePoints,
-                camera_role: this.currentCameraRole
-            })
-        });
-
-        // 2. UI Updates (Switch to Analysis Mode)
+        // Line is already auto-saved, but we can double check or just proceed
+        
         this.els.processingStatus.classList.remove('hidden');
         this.els.startBtn.disabled = true;
         
         const location = this.els.locationInput.value || 'Unknown';
 
-        // 3. Trigger Processing
         try {
             const response = await fetch('/setup/start-processing', {
                 method: 'POST',
@@ -602,10 +564,13 @@ class WorkbenchManager {
             const data = await response.json();
 
             if (data.success) {
-                // Switch View to "Analysis Mode"
+                // Update local state
+                const config = this.cameraConfigs[this.currentCameraRole];
+                config.processingStatus = 'processing';
+                this.updateActionPanelUI();
+
                 this.setAnalysisMode(true);
                 
-                // Join the session room for real-time updates
                 if (window.dashboardManager && window.dashboardManager.socket) {
                     window.dashboardManager.sessionId = data.session_id;
                     window.dashboardManager.socket.emit('join_session', { 
@@ -622,20 +587,15 @@ class WorkbenchManager {
 
     setAnalysisMode(isActive) {
         if (isActive) {
-            // Hide Setup Canvas, Show Live Feed (which will be populated by processed video)
             this.els.canvas.style.display = 'none';
             this.els.liveFeed.classList.remove('hidden');
             this.els.liveBadge.classList.remove('hidden');
             this.els.modeLabel.textContent = "Live Analysis";
-            
-            // In a real app, you'd set the src of liveFeed to the processed stream URL
-            // For now, we rely on the dashboard.js socket updates to handle data
         }
     }
     
     checkExistingSession() {
-        // If the page loads and we already have a session, switch to analysis mode
-        // (This relies on backend session logic or a global variable)
+        // Simple check
         const hasSession = document.getElementById('live-badge').classList.contains('active-session'); 
         if(hasSession) {
             this.setAnalysisMode(true);
@@ -643,18 +603,13 @@ class WorkbenchManager {
     }
 }
 
-// Global function for the HTML onclick attributes
 function switchCameraContext(role) {
     if (window.workbenchManager) {
         window.workbenchManager.switchCameraContext(role);
     }
 }
 
-// Initialize when DOM is ready
 document.addEventListener('DOMContentLoaded', () => {
-    // Initialize Dashboard (Analytics)
     window.dashboardManager = new DashboardManager();
-    
-    // Initialize Workbench (Setup/UI)
     window.workbenchManager = new WorkbenchManager();
 });

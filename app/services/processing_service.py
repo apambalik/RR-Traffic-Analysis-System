@@ -1,7 +1,3 @@
-"""
-Background processing service for video analysis.
-Handles video processing in a separate thread and emits real-time updates via SocketIO.
-"""
 import threading
 from datetime import datetime
 from app import socketio
@@ -12,6 +8,7 @@ from app.config import Config
 from app.utils.math_utils import calculate_line_signed_distance
 
 # Global state to track processing jobs
+# Changed to support multiple jobs per session: { session_id: { camera_role: job } }
 processing_jobs = {}
 
 class ProcessingJob:
@@ -36,7 +33,8 @@ class ProcessingJob:
             'status': self.status,
             'progress': self.progress,
             'error': self.error,
-            'location': self.location
+            'location': self.location,
+            'camera_role': self.camera_role  # Added camera_role
         }
 
 
@@ -48,7 +46,13 @@ def start_processing(session_id: str, video_path: str, line_points: list,
     Returns immediately after starting the thread.
     """
     job = ProcessingJob(session_id, video_path, line_points, location, video_start_time, camera_role)
-    processing_jobs[session_id] = job
+    
+    # Initialize session dict if it doesn't exist
+    if session_id not in processing_jobs:
+        processing_jobs[session_id] = {}
+        
+    # Store job by camera role
+    processing_jobs[session_id][camera_role] = job
     
     # Start processing in background thread
     job.thread = threading.Thread(
@@ -62,10 +66,10 @@ def start_processing(session_id: str, video_path: str, line_points: list,
 
 
 def get_job_status(session_id: str) -> dict:
-    """Get the status of a processing job"""
-    job = processing_jobs.get(session_id)
-    if job:
-        return job.to_dict()
+    """Get the status of processing jobs for a session"""
+    if session_id in processing_jobs:
+        # Return dict of jobs: {'ENTRY': {...}, 'EXIT': {...}}
+        return {role: job.to_dict() for role, job in processing_jobs[session_id].items()}
     return None
 
 
@@ -121,8 +125,6 @@ def _process_with_realtime_updates(video_processor: VideoProcessor, job: Process
     from PIL import Image
     import supervision as sv
     from app.config import Config
-    from app.models import VehicleEvent
-    import math
     
     cap = cv2.VideoCapture(job.video_path)
     fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
@@ -130,7 +132,8 @@ def _process_with_realtime_updates(video_processor: VideoProcessor, job: Process
     
     # Setup output video
     fourcc = cv2.VideoWriter_fourcc(*"mp4v")
-    output_filename = f"{job.session_id}_processed.mp4"
+    # Make filename unique per camera
+    output_filename = f"{job.session_id}_{job.camera_role}_processed.mp4"
     output_path = os.path.join(Config.OUTPUT_FOLDER, output_filename)
     writer = cv2.VideoWriter(output_path, fourcc, fps, 
                            (Config.FRAME_WIDTH, Config.FRAME_HEIGHT))
@@ -287,6 +290,7 @@ def _process_frame_detections(detections, line_points, track_class, track_last_d
                 
                 cls_name = video_processor.class_names[track_class[tracker_id]]
                 
+                # Determine direction based on camera role
                 if job.camera_role == 'EXIT':
                     direction = 'OUT'
                 else:
@@ -321,7 +325,8 @@ def _emit_progress_update(job: ProcessingJob):
     """Emit progress update"""
     socketio.emit('processing_progress', {
         'session_id': job.session_id,
-        'progress': job.progress
+        'progress': job.progress,
+        'camera_role': job.camera_role
     }, room=job.session_id, namespace='/')
 
 
@@ -329,7 +334,8 @@ def _emit_vehicle_event(job: ProcessingJob, event):
     """Emit a new vehicle detection event"""
     socketio.emit('vehicle_event', {
         'session_id': job.session_id,
-        'event': event.to_dict()
+        'event': event.to_dict(),
+        'camera_role': job.camera_role
     }, room=job.session_id, namespace='/')
 
 
@@ -337,7 +343,8 @@ def _emit_statistics_update(job: ProcessingJob, stats: dict):
     """Emit updated statistics"""
     socketio.emit('statistics_update', {
         'session_id': job.session_id,
-        'statistics': stats
+        'statistics': stats,
+        'camera_role': job.camera_role
     }, room=job.session_id, namespace='/')
 
 
@@ -345,7 +352,8 @@ def _emit_processing_complete(job: ProcessingJob, final_stats: dict):
     """Emit processing completion event"""
     socketio.emit('processing_complete', {
         'session_id': job.session_id,
-        'statistics': final_stats
+        'statistics': final_stats,
+        'camera_role': job.camera_role
     }, room=job.session_id, namespace='/')
 
 
@@ -353,5 +361,6 @@ def _emit_error(job: ProcessingJob, error_message: str):
     """Emit processing error event"""
     socketio.emit('processing_error', {
         'session_id': job.session_id,
-        'error': error_message
+        'error': error_message,
+        'camera_role': job.camera_role
     }, room=job.session_id, namespace='/')
