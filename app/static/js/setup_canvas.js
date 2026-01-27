@@ -114,6 +114,15 @@ class LineDrawer {
         ];
     }
 
+    setLinePoints(points) {
+        // Restore line from saved points
+        if (points && points.length === 2) {
+            this.startPoint = { x: points[0][0], y: points[0][1] };
+            this.endPoint = { x: points[1][0], y: points[1][1] };
+            this.redraw();
+        }
+    }
+
     reset() {
         this.startPoint = null;
         this.endPoint = null;

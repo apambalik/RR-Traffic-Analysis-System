@@ -23,42 +23,70 @@ def configuration():
 def upload_video():
     """Handle video upload"""
     try:
-        # clear old files in uploads folder
-        for f in os.listdir(Config.UPLOAD_FOLDER):
-            os.remove(os.path.join(Config.UPLOAD_FOLDER, f))
-    except Exception:
-        pass
-    
-    if 'video' not in request.files:
-        return jsonify({'error': 'No video file'}), 400
-    
-    file = request.files['video']
-    if file.filename == '':
-        return jsonify({'error': 'No selected file'}), 400
-    
-    # Save uploaded file
-    filename = secure_filename(file.filename)
-    session_id = str(uuid.uuid4())
-    upload_path = os.path.join(Config.UPLOAD_FOLDER, f"{session_id}_{filename}")
-    file.save(upload_path)
-    
-    # Store session info
-    session['current_session'] = session_id
-    session['video_path'] = upload_path
-    
-    return jsonify({
-        'success': True,
-        'session_id': session_id,
-        'video_path': upload_path
-    })
+        print(f"Upload request received. Files: {request.files.keys()}, Form: {request.form.keys()}")
+        
+        if 'video' not in request.files:
+            print("Error: No video file in request")
+            return jsonify({'error': 'No video file'}), 400
+        
+        file = request.files['video']
+        if file.filename == '':
+            print("Error: Empty filename")
+            return jsonify({'error': 'No selected file'}), 400
+        
+        # Get camera role from form data
+        camera_role = request.form.get('camera_role', 'ENTRY')
+        print(f"Uploading video for camera: {camera_role}")
+        
+        # Save uploaded file
+        filename = secure_filename(file.filename)
+        session_id = session.get('current_session')
+        if not session_id:
+            session_id = str(uuid.uuid4())
+            session['current_session'] = session_id
+            print(f"Created new session: {session_id}")
+        
+        upload_path = os.path.join(Config.UPLOAD_FOLDER, f"{session_id}_{camera_role}_{filename}")
+        print(f"Saving to: {upload_path}")
+        
+        file.save(upload_path)
+        print(f"File saved successfully. Size: {os.path.getsize(upload_path)} bytes")
+        
+        # Initialize camera storage structure if needed
+        if 'cameras' not in session:
+            session['cameras'] = {'ENTRY': {}, 'EXIT': {}}
+        
+        # Store video path for specific camera
+        session['cameras'][camera_role]['video_path'] = upload_path
+        session['cameras'][camera_role]['has_video'] = True
+        session.modified = True
+        
+        print(f"Upload successful for {camera_role} camera")
+        return jsonify({
+            'success': True,
+            'session_id': session_id,
+            'camera_role': camera_role,
+            'video_path': upload_path
+        })
+        
+    except Exception as e:
+        print(f"Upload error: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
 
 @setup_bp.route('/get-first-frame')
 def get_first_frame():
     """Extract and return first frame for line drawing"""
-    video_path = session.get('video_path')
+    camera_role = request.args.get('camera_role', 'ENTRY')
+    
+    # Get camera-specific video path
+    cameras = session.get('cameras', {})
+    camera_data = cameras.get(camera_role, {})
+    video_path = camera_data.get('video_path')
     
     if not video_path:
-        return jsonify({'error': 'No video uploaded'}), 400
+        return jsonify({'error': 'No video uploaded for this camera'}), 400
     
     cap = cv2.VideoCapture(video_path)
     ret, frame = cap.read()
@@ -73,10 +101,14 @@ def get_first_frame():
     _, buffer = cv2.imencode('.jpg', frame)
     frame_base64 = base64.b64encode(buffer).decode('utf-8')
     
+    # Get line points if they exist for this camera
+    line_points = camera_data.get('line_points')
+    
     return jsonify({
         'frame': frame_base64,
         'width': Config.FRAME_WIDTH,
-        'height': Config.FRAME_HEIGHT
+        'height': Config.FRAME_HEIGHT,
+        'line_points': line_points
     })
 
 @setup_bp.route('/save-line', methods=['POST'])
@@ -84,27 +116,39 @@ def save_line():
     """Save counting line coordinates"""
     data = request.get_json()
     line_points = data.get('line_points')
+    camera_role = data.get('camera_role', 'ENTRY')
     
     if not line_points or len(line_points) != 2:
         return jsonify({'error': 'Invalid line coordinates'}), 400
     
-    session['line_points'] = line_points
+    # Initialize camera storage if needed
+    if 'cameras' not in session:
+        session['cameras'] = {'ENTRY': {}, 'EXIT': {}}
     
-    return jsonify({'success': True})
+    # Store line points for specific camera
+    session['cameras'][camera_role]['line_points'] = line_points
+    session['cameras'][camera_role]['has_line'] = True
+    session.modified = True
+    
+    return jsonify({'success': True, 'camera_role': camera_role})
 
 @setup_bp.route('/start-processing', methods=['POST'])
 def start_processing_route():
     """Start video processing in background and return immediately"""
     session_id = session.get('current_session')
-    video_path = session.get('video_path')
-    line_points = session.get('line_points')
+    data = request.get_json()
+    camera_role = data.get('camera_role', 'ENTRY')
+    
+    # Get camera-specific configuration
+    cameras = session.get('cameras', {})
+    camera_data = cameras.get(camera_role, {})
+    video_path = camera_data.get('video_path')
+    line_points = camera_data.get('line_points')
     
     if not all([session_id, video_path, line_points]):
-        return jsonify({'error': 'Missing configuration'}), 400
+        return jsonify({'error': f'Missing configuration for {camera_role} camera'}), 400
     
-    data = request.get_json()
     location = data.get('location', 'Unknown')
-    camera_role = data.get('camera_role', 'ENTRY')
     
     # Parse video start time if provided (for historical footage)
     video_start_time = None
@@ -131,8 +175,9 @@ def start_processing_route():
         return jsonify({
             'success': True,
             'session_id': session_id,
+            'camera_role': camera_role,
             'status': job.status,
-            'message': 'Processing started in background'
+            'message': f'Processing started for {camera_role} camera'
         })
         
     except Exception as e:

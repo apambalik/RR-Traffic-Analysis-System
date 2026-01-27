@@ -60,14 +60,14 @@
         </div>
 
         <div class="sidebar-footer">
-            <button id="btn-start-analysis" class="btn btn-primary btn-full btn-lg" onclick="startAnalysis()">
+            <button id="btn-start-analysis" class="btn btn-primary btn-full btn-lg">
                 <i data-feather="play"></i> Start Analysis
             </button>
             <div id="processing-status" class="hidden mt-2">
                 <div class="progress-bar">
-                    <div class="progress-bar-fill" style="width: 0%"></div>
+                    <div class="progress-bar-fill" id="progress-bar" style="width: 0%"></div>
                 </div>
-                <div class="text-center mt-1"><small>Processing...</small></div>
+                <div class="text-center mt-1"><small id="processing-text">Processing...</small></div>
             </div>
         </div>
     </aside>
@@ -104,31 +104,31 @@
             
             <div class="kpi-grid">
                 <div class="kpi-card">
+                    <div class="kpi-icon green"><i data-feather="arrow-down-circle"></i></div>
+                    <div class="kpi-content">
+                        <div class="kpi-label">Vehicles In</div>
+                        <div class="kpi-value positive" id="vehicles-in">0</div>
+                    </div>
+                </div>
+                <div class="kpi-card">
+                    <div class="kpi-icon orange"><i data-feather="arrow-up-circle"></i></div>
+                    <div class="kpi-content">
+                        <div class="kpi-label">Vehicles Out</div>
+                        <div class="kpi-value negative" id="vehicles-out">0</div>
+                    </div>
+                </div>
+                <div class="kpi-card">
                     <div class="kpi-icon blue"><i data-feather="truck"></i></div>
                     <div class="kpi-content">
-                        <div class="kpi-label">Total Vehicles</div>
-                        <div class="kpi-value" id="total-vehicles">0</div>
-                    </div>
-                </div>
-                <div class="kpi-card">
-                    <div class="kpi-icon green"><i data-feather="arrow-right-circle"></i></div>
-                    <div class="kpi-content">
-                        <div class="kpi-label">Entry Flow</div>
-                        <div class="kpi-value positive" id="in-count">0</div>
-                    </div>
-                </div>
-                <div class="kpi-card">
-                    <div class="kpi-icon orange"><i data-feather="arrow-left-circle"></i></div>
-                    <div class="kpi-content">
-                        <div class="kpi-label">Exit Flow</div>
-                        <div class="kpi-value negative" id="out-count">0</div>
+                        <div class="kpi-label">Net Vehicles</div>
+                        <div class="kpi-value" id="net-vehicles">0</div>
                     </div>
                 </div>
                 <div class="kpi-card">
                     <div class="kpi-icon red"><i data-feather="users"></i></div>
                     <div class="kpi-content">
-                        <div class="kpi-label">Est. People</div>
-                        <div class="kpi-value" id="total-people">0</div>
+                        <div class="kpi-label">Est. People Range</div>
+                        <div class="kpi-value" id="people-range">0 - 0</div>
                     </div>
                 </div>
             </div>
@@ -136,31 +136,48 @@
             <div class="grid-2">
                 <div class="card">
                     <div class="card-header">
-                        <div class="card-title"><i data-feather="bar-chart-2"></i> Vehicle Classification</div>
+                        <div class="card-title"><i data-feather="bar-chart-2"></i> Vehicle Distribution</div>
                     </div>
                     <div class="chart-container">
-                        <canvas id="vehicle-chart"></canvas>
+                        <canvas id="distributionChart"></canvas>
                     </div>
                 </div>
                 <div class="card">
                     <div class="card-header">
-                        <div class="card-title"><i data-feather="list"></i> Live Event Log</div>
-                        <span class="badge badge-processing" id="log-count">0 events</span>
+                        <div class="card-title"><i data-feather="list"></i> Realtime Log</div>
+                        <span class="badge badge-processing" id="event-count">0 events</span>
                     </div>
-                    <div class="event-log" id="event-log">
-                        </div>
+                    <div class="event-log-container">
+                        <table class="event-table">
+                            <thead>
+                                <tr>
+                                    <th>Time</th>
+                                    <th>Type</th>
+                                    <th>Direction</th>
+                                    <th>Seats (Min - Max)</th>
+                                </tr>
+                            </thead>
+                            <tbody id="event-log-body">
+                                <tr class="empty-row">
+                                    <td colspan="4" class="text-center text-secondary">No events yet</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
                 </div>
             </div>
         </section>
     </main>
 </div>
 
+{% endblock %}
+
+{% block scripts %}
 <script src="https://cdn.socket.io/4.6.0/socket.io.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script src="https://unpkg.com/feather-icons"></script>
 
-<script src="{{ url_for('static', filename='js/dashboard.js') }}"></script> 
 <script src="{{ url_for('static', filename='js/setup_canvas.js') }}"></script>
+<script src="{{ url_for('static', filename='js/dashboard.js') }}"></script>
 
 <script>
     // Quick initialize for icons
@@ -169,6 +186,9 @@
     // Set default datetime to now
     const now = new Date();
     now.setMinutes(now.getMinutes() - now.getTimezoneOffset());
-    document.getElementById('session-time').value = now.toISOString().slice(0,16);
+    const sessionTimeInput = document.getElementById('session-time');
+    if (sessionTimeInput) {
+        sessionTimeInput.value = now.toISOString().slice(0,16);
+    }
 </script>
 {% endblock %}

@@ -114,10 +114,11 @@ def handle_disconnect():
 @socketio.on('join_session')
 def handle_join_session(data):
     """Handle client joining a processing session"""
+    from flask_socketio import join_room
     session_id = data.get('session_id')
     if session_id:
-        print(f'Client joined session: {session_id}')
-        # Could implement room-based messaging here for multiple clients
+        join_room(session_id)
+        print(f'Client joined session room: {session_id}')
         emit('session_joined', {'session_id': session_id})
 
 @socketio.on('request_status')

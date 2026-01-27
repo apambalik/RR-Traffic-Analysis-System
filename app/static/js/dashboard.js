@@ -357,7 +357,304 @@ class DashboardManager {
     }
 }
 
-// Initialize dashboard when DOM is ready
+// Note: Initialization moved to end of file to include WorkbenchManager
+
+class WorkbenchManager {
+    constructor() {
+        // State
+        this.currentCameraRole = 'ENTRY';
+        this.lineDrawer = null;
+        this.isConfigured = false;
+        this.lineSet = false;
+        
+        // Track camera configurations separately
+        this.cameraConfigs = {
+            'ENTRY': { hasVideo: false, hasLine: false, videoName: '' },
+            'EXIT': { hasVideo: false, hasLine: false, videoName: '' }
+        };
+
+        // Elements
+        this.els = {
+            videoUpload: document.getElementById('video-upload'),
+            fileName: document.getElementById('file-name-display'),
+            startBtn: document.getElementById('btn-start-analysis'),
+            clearLineBtn: document.getElementById('clear-line-btn'),
+            canvas: document.getElementById('setup-canvas'),
+            liveFeed: document.getElementById('live-feed'),
+            previewPlayer: document.getElementById('preview-player'),
+            placeholder: document.getElementById('stage-placeholder'),
+            configStatusText: document.getElementById('config-status-text'),
+            configStatusDot: document.getElementById('config-status-dot'),
+            processingStatus: document.getElementById('processing-status'),
+            locationInput: document.getElementById('location-input'),
+            modeLabel: document.getElementById('mode-label'),
+            liveBadge: document.getElementById('live-badge')
+        };
+
+        this.init();
+    }
+
+    init() {
+        this.setupEventListeners();
+        this.checkExistingSession();
+    }
+
+    setupEventListeners() {
+        // Handle Video Upload
+        if (this.els.videoUpload) {
+            this.els.videoUpload.addEventListener('change', (e) => this.handleVideoUpload(e));
+        }
+
+        // Handle Clear/Redraw Line
+        if (this.els.clearLineBtn) {
+            this.els.clearLineBtn.addEventListener('click', () => this.resetLine());
+        }
+
+        // Handle Start Analysis
+        if (this.els.startBtn) {
+            this.els.startBtn.addEventListener('click', () => this.startAnalysis());
+        }
+    }
+
+    // --- Camera Context Switching (Entry/Exit Tabs) ---
+    switchCameraContext(role) {
+        this.currentCameraRole = role;
+        
+        // UI Updates for Tabs
+        document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
+        const activeId = role === 'ENTRY' ? 'tab-entry' : 'tab-exit';
+        document.getElementById(activeId).classList.add('active');
+        
+        // Update Stage Label
+        document.getElementById('stage-label').textContent = 
+            `${role.charAt(0).toUpperCase() + role.slice(1).toLowerCase()} Camera Preview`;
+
+        // Update file name display
+        const config = this.cameraConfigs[role];
+        if (config.videoName) {
+            this.els.fileName.textContent = config.videoName;
+        } else {
+            this.els.fileName.textContent = 'No file selected';
+        }
+        
+        // Load the frame for the selected camera if video exists
+        if (config.hasVideo) {
+            this.loadFirstFrame();
+            this.updateConfigStatus(config.hasLine);
+            if (config.hasLine) {
+                this.els.clearLineBtn.disabled = false;
+            }
+        } else {
+            // No video for this camera - show placeholder
+            this.els.canvas.style.display = 'none';
+            this.els.placeholder.style.display = 'block';
+            this.updateConfigStatus(false);
+            this.els.clearLineBtn.disabled = true;
+        }
+    }
+
+    // --- Video Upload & First Frame Extraction ---
+    async handleVideoUpload(e) {
+        console.log('handleVideoUpload called', e);
+        
+        if (!e.target.files || !e.target.files.length) {
+            console.log('No files selected');
+            return;
+        }
+
+        const file = e.target.files[0];
+        console.log('File selected:', file.name, 'Size:', file.size, 'Type:', file.type);
+        
+        if (this.els.fileName) {
+            this.els.fileName.textContent = file.name;
+        }
+        
+        const formData = new FormData();
+        formData.append('video', file);
+        formData.append('camera_role', this.currentCameraRole);
+
+        try {
+            console.log('Uploading to /setup/upload-video for camera:', this.currentCameraRole);
+            
+            // Use existing endpoint from setup.py
+            const response = await fetch('/setup/upload-video', {
+                method: 'POST',
+                body: formData
+            });
+            
+            console.log('Response status:', response.status);
+            const data = await response.json();
+            console.log('Response data:', data);
+
+            if (data.success) {
+                // Update camera config
+                this.cameraConfigs[this.currentCameraRole].hasVideo = true;
+                this.cameraConfigs[this.currentCameraRole].videoName = file.name;
+                
+                console.log('Upload successful, loading first frame...');
+                this.loadFirstFrame();
+            } else {
+                console.error('Upload failed:', data.error);
+                alert('Upload failed: ' + data.error);
+            }
+        } catch (error) {
+            console.error('Upload error:', error);
+            alert('Error uploading video: ' + error.message);
+        }
+    }
+
+    async loadFirstFrame() {
+        try {
+            const response = await fetch(`/setup/get-first-frame?camera_role=${this.currentCameraRole}`);
+            const data = await response.json();
+
+            if (data.frame) {
+                // UI State: Show Canvas, Hide Placeholder
+                this.els.placeholder.style.display = 'none';
+                this.els.canvas.style.display = 'block';
+                this.els.liveFeed.classList.add('hidden');
+
+                // Initialize Line Drawer
+                this.lineDrawer = new LineDrawer('setup-canvas');
+                await this.lineDrawer.loadImage('data:image/jpeg;base64,' + data.frame);
+
+                // If line points exist for this camera, restore them
+                if (data.line_points) {
+                    this.lineDrawer.setLinePoints(data.line_points);
+                    this.lineSet = true;
+                    this.cameraConfigs[this.currentCameraRole].hasLine = true;
+                    this.els.clearLineBtn.disabled = false;
+                    this.updateConfigStatus(true);
+                } else {
+                    // Setup Callback for when line is drawn
+                    this.lineDrawer.onLineComplete = (points) => {
+                        this.lineSet = true;
+                        this.cameraConfigs[this.currentCameraRole].hasLine = true;
+                        this.els.clearLineBtn.disabled = false;
+                        this.updateConfigStatus(true);
+                    };
+                    
+                    // Update Status
+                    this.els.configStatusText.textContent = "Video Loaded. Draw Line.";
+                    this.els.configStatusDot.className = "status-dot error"; // Orange/Red until line drawn
+                }
+            }
+        } catch (error) {
+            console.error('Error loading frame:', error);
+        }
+    }
+
+    resetLine() {
+        if (this.lineDrawer) {
+            this.lineDrawer.reset();
+            this.lineSet = false;
+            this.cameraConfigs[this.currentCameraRole].hasLine = false;
+            this.updateConfigStatus(false);
+        }
+    }
+
+    updateConfigStatus(ready) {
+        if (ready) {
+            this.els.configStatusText.textContent = "Ready to Process";
+            this.els.configStatusDot.className = "status-dot ready";
+            this.els.startBtn.disabled = false;
+        } else {
+            this.els.configStatusText.textContent = "Configuration Incomplete";
+            this.els.configStatusDot.className = "status-dot error";
+            this.els.startBtn.disabled = true;
+        }
+    }
+
+    // --- Processing ---
+    async startAnalysis() {
+        if (!this.lineSet || !this.lineDrawer) {
+            alert("Please draw the counting line first.");
+            return;
+        }
+
+        // 1. Save Line for current camera
+        const linePoints = this.lineDrawer.getLinePoints();
+        await fetch('/setup/save-line', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ 
+                line_points: linePoints,
+                camera_role: this.currentCameraRole
+            })
+        });
+
+        // 2. UI Updates (Switch to Analysis Mode)
+        this.els.processingStatus.classList.remove('hidden');
+        this.els.startBtn.disabled = true;
+        
+        const location = this.els.locationInput.value || 'Unknown';
+
+        // 3. Trigger Processing
+        try {
+            const response = await fetch('/setup/start-processing', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    location: location,
+                    camera_role: this.currentCameraRole
+                })
+            });
+            const data = await response.json();
+
+            if (data.success) {
+                // Switch View to "Analysis Mode"
+                this.setAnalysisMode(true);
+                
+                // Join the session room for real-time updates
+                if (window.dashboardManager && window.dashboardManager.socket) {
+                    window.dashboardManager.sessionId = data.session_id;
+                    window.dashboardManager.socket.emit('join_session', { 
+                        session_id: data.session_id 
+                    });
+                }
+            }
+        } catch (error) {
+            alert('Failed to start processing: ' + error);
+            this.els.startBtn.disabled = false;
+            this.els.processingStatus.classList.add('hidden');
+        }
+    }
+
+    setAnalysisMode(isActive) {
+        if (isActive) {
+            // Hide Setup Canvas, Show Live Feed (which will be populated by processed video)
+            this.els.canvas.style.display = 'none';
+            this.els.liveFeed.classList.remove('hidden');
+            this.els.liveBadge.classList.remove('hidden');
+            this.els.modeLabel.textContent = "Live Analysis";
+            
+            // In a real app, you'd set the src of liveFeed to the processed stream URL
+            // For now, we rely on the dashboard.js socket updates to handle data
+        }
+    }
+    
+    checkExistingSession() {
+        // If the page loads and we already have a session, switch to analysis mode
+        // (This relies on backend session logic or a global variable)
+        const hasSession = document.getElementById('live-badge').classList.contains('active-session'); 
+        if(hasSession) {
+            this.setAnalysisMode(true);
+        }
+    }
+}
+
+// Global function for the HTML onclick attributes
+function switchCameraContext(role) {
+    if (window.workbenchManager) {
+        window.workbenchManager.switchCameraContext(role);
+    }
+}
+
+// Initialize when DOM is ready
 document.addEventListener('DOMContentLoaded', () => {
+    // Initialize Dashboard (Analytics)
     window.dashboardManager = new DashboardManager();
+    
+    // Initialize Workbench (Setup/UI)
+    window.workbenchManager = new WorkbenchManager();
 });

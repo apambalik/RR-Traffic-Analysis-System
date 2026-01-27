@@ -314,7 +314,7 @@ def _process_frame_detections(detections, line_points, track_class, track_last_d
 # SocketIO event emitters
 def _emit_status_update(job: ProcessingJob):
     """Emit job status update"""
-    socketio.emit('processing_status', job.to_dict(), namespace='/')
+    socketio.emit('processing_status', job.to_dict(), room=job.session_id, namespace='/')
 
 
 def _emit_progress_update(job: ProcessingJob):
@@ -322,7 +322,7 @@ def _emit_progress_update(job: ProcessingJob):
     socketio.emit('processing_progress', {
         'session_id': job.session_id,
         'progress': job.progress
-    }, namespace='/')
+    }, room=job.session_id, namespace='/')
 
 
 def _emit_vehicle_event(job: ProcessingJob, event):
@@ -330,7 +330,7 @@ def _emit_vehicle_event(job: ProcessingJob, event):
     socketio.emit('vehicle_event', {
         'session_id': job.session_id,
         'event': event.to_dict()
-    }, namespace='/')
+    }, room=job.session_id, namespace='/')
 
 
 def _emit_statistics_update(job: ProcessingJob, stats: dict):
@@ -338,7 +338,7 @@ def _emit_statistics_update(job: ProcessingJob, stats: dict):
     socketio.emit('statistics_update', {
         'session_id': job.session_id,
         'statistics': stats
-    }, namespace='/')
+    }, room=job.session_id, namespace='/')
 
 
 def _emit_processing_complete(job: ProcessingJob, final_stats: dict):
@@ -346,7 +346,7 @@ def _emit_processing_complete(job: ProcessingJob, final_stats: dict):
     socketio.emit('processing_complete', {
         'session_id': job.session_id,
         'statistics': final_stats
-    }, namespace='/')
+    }, room=job.session_id, namespace='/')
 
 
 def _emit_error(job: ProcessingJob, error_message: str):
@@ -354,4 +354,4 @@ def _emit_error(job: ProcessingJob, error_message: str):
     socketio.emit('processing_error', {
         'session_id': job.session_id,
         'error': error_message
-    }, namespace='/')
+    }, room=job.session_id, namespace='/')
