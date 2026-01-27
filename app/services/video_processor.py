@@ -5,6 +5,7 @@ from PIL import Image
 import supervision as sv
 import time
 import torch
+import queue
 from rfdetr import RFDETRBase
 from datetime import datetime
 from app.models import VehicleEvent, SessionData
@@ -36,7 +37,8 @@ class VideoProcessor:
         return frame, (Config.FRAME_WIDTH, Config.FRAME_HEIGHT)
     
     def process_video(self, video_path: str, line_points: list, 
-                     session_data: SessionData, 
+                     session_data: SessionData,
+                     camera_role: str = 'ENTRY',
                      progress_callback=None) -> str:
         """
         Process video with vehicle detection and counting
@@ -76,6 +78,15 @@ class VideoProcessor:
         trace_annotator = sv.TraceAnnotator(color=color)
         
         frame_idx = 0
+        
+        # Get frame queue for streaming
+        try:
+            from app.routes.dashboard import frame_queues
+            frame_queue = frame_queues.get(camera_role)
+            print(f"Frame queue obtained for {camera_role} camera: {frame_queue is not None}")
+        except ImportError:
+            frame_queue = None
+            print("Warning: Could not import frame_queues, streaming disabled")
         
         try:
             retry_count = 0
@@ -123,10 +134,19 @@ class VideoProcessor:
                                        track_last_dist, counted_track_ids, 
                                        session_data)
                 
-                # Display counts
-                self._draw_counts(annotated_frame, session_data)
-                
+                # Write to output file
                 writer.write(annotated_frame)
+                
+                # Push frame to streaming queue (for real-time display)
+                if frame_queue is not None and frame_idx % 2 == 0:  # Stream every 2nd frame to reduce load
+                    try:
+                        # Non-blocking put - skip frame if queue is full
+                        frame_queue.put_nowait(annotated_frame.copy())
+                    except queue.Full:
+                        # Queue full, skip this frame
+                        pass
+                    except Exception as e:
+                        print(f"Error pushing frame to queue: {e}")
                 
                 # Progress callback
                 if progress_callback and frame_idx % 30 == 0:

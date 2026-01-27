@@ -31,21 +31,22 @@ class SessionData:
         self.line_coordinates = None
         
     def add_event(self, event: VehicleEvent):
+        """Add event and maintain chronological order"""
         self.events.append(event)
+        # Keep events sorted by timestamp for accurate statistics and display
+        self.events.sort(key=lambda e: e.timestamp)
         
     def get_statistics(self) -> Dict:
-        """Calculate current statistics"""
-        # Sort events by timestamp to ensure accurate calculation
-        sorted_events = sorted(self.events, key=lambda e: e.timestamp)
+        """Calculate current statistics from chronologically ordered events"""
+        # Events are already sorted by timestamp in add_event()
+        vehicles_in = sum(1 for e in self.events if e.direction == 'IN')
+        vehicles_out = sum(1 for e in self.events if e.direction == 'OUT')
         
-        vehicles_in = sum(1 for e in sorted_events if e.direction == 'IN')
-        vehicles_out = sum(1 for e in sorted_events if e.direction == 'OUT')
+        people_min = sum(e.seats_min for e in self.events if e.direction == 'IN')
+        people_max = sum(e.seats_max for e in self.events if e.direction == 'IN')
         
-        people_min = sum(e.seats_min for e in sorted_events if e.direction == 'IN')
-        people_max = sum(e.seats_max for e in sorted_events if e.direction == 'IN')
-        
-        people_min_out = sum(e.seats_min for e in sorted_events if e.direction == 'OUT')
-        people_max_out = sum(e.seats_max for e in sorted_events if e.direction == 'OUT')
+        people_min_out = sum(e.seats_min for e in self.events if e.direction == 'OUT')
+        people_max_out = sum(e.seats_max for e in self.events if e.direction == 'OUT')
         
         return {
             'vehicles_in': vehicles_in,

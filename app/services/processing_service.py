@@ -97,8 +97,8 @@ def _process_video_background(job: ProcessingJob):
             firebase_service
         )
         
-        # Save final session data to Firebase
-        firebase_service.save_session(session_data)
+        # Save final session data to Firebase (with camera role for proper merging)
+        firebase_service.save_session(session_data, camera_role=job.camera_role)
         
         job.status = 'completed'
         job.progress = 100
@@ -124,6 +124,7 @@ def _process_with_realtime_updates(video_processor: VideoProcessor, job: Process
     import os
     from PIL import Image
     import supervision as sv
+    import queue
     from app.config import Config
     
     cap = cv2.VideoCapture(job.video_path)
@@ -162,6 +163,11 @@ def _process_with_realtime_updates(video_processor: VideoProcessor, job: Process
     
     frame_idx = 0
     last_event_count = 0
+    
+    # Get frame queue for streaming
+    from app.state import frame_queues
+    frame_queue = frame_queues.get(job.camera_role)
+    print(f"Frame queue obtained for {job.camera_role} camera: {frame_queue is not None}")
     
     try:
         while True:
@@ -207,16 +213,18 @@ def _process_with_realtime_updates(video_processor: VideoProcessor, job: Process
                 job, frame_idx, fps
             )
             
-            # Draw counts on frame
-            stats = session_data.get_statistics()
-            y_offset = 30
-            for vehicle_type, count in stats['vehicle_distribution'].items():
-                cv2.putText(annotated_frame, f"{vehicle_type}: {count}", 
-                           (10, y_offset), cv2.FONT_HERSHEY_SIMPLEX, 
-                           0.6, (0, 255, 255), 2)
-                y_offset += 25
-            
             writer.write(annotated_frame)
+            
+            # Push frame to streaming queue (for real-time display)
+            if frame_queue is not None and frame_idx % 2 == 0:  # Stream every 2nd frame to reduce load
+                try:
+                    # Non-blocking put - skip frame if queue is full
+                    frame_queue.put_nowait(annotated_frame.copy())
+                except queue.Full:
+                    # Queue full, skip this frame
+                    pass
+                except Exception as e:
+                    print(f"Error pushing frame to queue in processing_service: {e}")
             
             # Update progress and emit events periodically
             if frame_idx % 10 == 0:  # Every 10 frames
@@ -237,8 +245,8 @@ def _process_with_realtime_updates(video_processor: VideoProcessor, job: Process
                     # Emit updated statistics
                     _emit_statistics_update(job, session_data.get_statistics())
                     
-                    # Save to Firebase periodically
-                    firebase_service.save_session(session_data, update_events=False)
+                    # Save to Firebase periodically (with camera role for proper merging)
+                    firebase_service.save_session(session_data, update_events=False, camera_role=job.camera_role)
                     
                     last_event_count = current_event_count
             

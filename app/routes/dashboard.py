@@ -1,9 +1,13 @@
-from flask import Blueprint, render_template, jsonify, session
+from flask import Blueprint, render_template, jsonify, session, Response
 from flask_socketio import emit
 from app import socketio
 from app.services.firebase_service import FirebaseService
 from app.services.processing_service import get_job_status
 from app.models import SessionData
+from app.state import frame_queues
+import cv2
+import queue
+import time
 
 dashboard_bp = Blueprint('dashboard', __name__)
 firebase_service = FirebaseService()
@@ -97,6 +101,66 @@ def get_processing_status():
         return jsonify(status)
     else:
         return jsonify({'status': 'not_found'})
+
+
+def generate_frames(camera_role):
+    """Generator function for streaming MJPEG frames"""
+    frame_queue = frame_queues.get(camera_role)
+    if not frame_queue:
+        print(f"No frame queue found for camera: {camera_role}")
+        return
+    
+    print(f"Starting frame stream for {camera_role} camera")
+    last_frame_time = time.time()
+    
+    while True:
+        try:
+            # Get frame from queue with timeout
+            frame = frame_queue.get(timeout=5.0)
+            
+            # Encode frame as JPEG
+            ret, buffer = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 85])
+            if not ret:
+                print(f"Failed to encode frame for {camera_role}")
+                continue
+            
+            # Convert to bytes
+            frame_bytes = buffer.tobytes()
+            
+            # Calculate FPS for monitoring
+            current_time = time.time()
+            fps = 1.0 / (current_time - last_frame_time) if (current_time - last_frame_time) > 0 else 0
+            last_frame_time = current_time
+            
+            if frame_bytes:
+                # Yield frame in multipart format
+                yield (b'--frame\r\n'
+                       b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
+            
+        except queue.Empty:
+            # No frames available - continue waiting
+            time.sleep(0.1)
+            continue
+        except GeneratorExit:
+            print(f"Client disconnected from {camera_role} stream")
+            break
+        except Exception as e:
+            print(f"Stream error for {camera_role}: {e}")
+            break
+
+
+@dashboard_bp.route('/video-feed/<camera_role>')
+def video_feed(camera_role):
+    """Video streaming route for real-time annotated frames"""
+    if camera_role not in ['ENTRY', 'EXIT']:
+        return jsonify({'error': 'Invalid camera role'}), 404
+    
+    print(f"Video feed requested for {camera_role} camera")
+    
+    return Response(
+        generate_frames(camera_role),
+        mimetype='multipart/x-mixed-replace; boundary=frame'
+    )
 
 
 # WebSocket event handlers

@@ -190,7 +190,8 @@ class DashboardManager {
         const vehicleClass = `badge-${event.vehicle_type.toLowerCase()}`;
         row.innerHTML = `
             <td>${timestamp}</td>
-            <td><span class="badge ${vehicleClass}">${event.vehicle_type}</span></td>            <td><span class="badge ${directionClass}">${event.direction}</span></td>
+            <td><span class="badge ${vehicleClass}">${event.vehicle_type}</span></td>            
+            <td><span class="badge ${directionClass}">${event.direction}</span></td>
             <td>${event.seats_min} - ${event.seats_max}</td>
         `;
         
@@ -221,11 +222,9 @@ class DashboardManager {
     
     onProcessingComplete(data) {
         this.showNotification('Processing Complete', 'Video analysis finished successfully!', 'success');
-        if (data.statistics) {
-            this.updateStatistics(data.statistics);
-            if (data.statistics.vehicle_distribution) {
-                this.updateDistributionChart(data.statistics.vehicle_distribution);
-            }
+        if (data.statistics && data.camera_role) {
+            // Update per-camera stats and aggregate (same as during processing)
+            this.updateCameraStatistics(data.camera_role, data.statistics);
         }
     }
     
@@ -686,6 +685,8 @@ class WorkbenchManager {
                 sessionId = entryData.session_id;
                 entryConfig.processingStatus = 'processing';
                 this.updateCameraStatusText('ENTRY');
+                // Start live stream for Entry camera
+                this.setAnalysisMode(true, 'ENTRY');
             } else {
                 throw new Error(`Entry camera: ${entryData.error}`);
             }
@@ -704,12 +705,11 @@ class WorkbenchManager {
             if (exitData.success) {
                 exitConfig.processingStatus = 'processing';
                 this.updateCameraStatusText('EXIT');
+                // Start live stream for Exit camera
+                this.setAnalysisMode(true, 'EXIT');
             } else {
                 throw new Error(`Exit camera: ${exitData.error}`);
             }
-
-            // Set analysis mode
-            this.setAnalysisMode(true);
             
             // Join socket room for real-time updates
             if (window.dashboardManager && window.dashboardManager.socket && sessionId) {
@@ -728,8 +728,35 @@ class WorkbenchManager {
         }
     }
 
-    setAnalysisMode(isActive) {
+    setAnalysisMode(isActive, cameraRole) {
         if (isActive) {
+            console.log(`Setting analysis mode for ${cameraRole} camera`);
+            
+            // Get the live feed element for this camera
+            const liveFeedId = cameraRole === 'ENTRY' ? 'entry-live-feed' : 'exit-live-feed';
+            const liveFeed = document.getElementById(liveFeedId);
+            
+            // Get the setup canvas for this camera
+            const canvasId = cameraRole === 'ENTRY' ? 'entry-canvas' : 'exit-canvas';
+            const canvas = document.getElementById(canvasId);
+            
+            // Hide canvas, show live feed
+            if (canvas) {
+                canvas.style.display = 'none';
+                console.log(`Hidden ${canvasId} canvas`);
+            }
+            
+            if (liveFeed) {
+                liveFeed.style.display = 'block';
+                liveFeed.classList.remove('hidden');
+                // Start streaming from backend MJPEG endpoint
+                const streamUrl = `/video-feed/${cameraRole}`;
+                liveFeed.src = streamUrl;
+                console.log(`Started live stream: ${streamUrl}`);
+            } else {
+                console.error(`Live feed element not found: ${liveFeedId}`);
+            }
+            
             this.els.liveBadge.classList.remove('hidden');
             this.els.modeLabel.textContent = "Live Analysis";
         }
