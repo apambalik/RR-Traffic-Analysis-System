@@ -62,12 +62,30 @@ rr-traffic-analysis-system/
 
 ## Plan
 
-✅**Phase 1:** Get single video working with background processing + WebSocket updates first.
+Proposed UI/UX: "The Analyst Workbench"
+Instead of a static dashboard, treat the page as a workspace with two states.
 
-🛠 **Phase 2:** Add the second video (exit cam) with parallel processing. (means in setup page, user can select the footage/live cam and draw the counting line for both entry and exit in one go)
+**Layout Strategy**
+- Left Sidebar (Collapsible): This replaces the "Setup Page." It holds the inputs for Video Source and Camera Role.
 
-**Phase 3:** Add video streaming to dashboard. (show the annotated vehicles crossing the line in dashboard)
+- Center Stage (The Player): A large video container that toggles between "Raw Video" (for drawing lines) and "Processed Stream" (for viewing results).
 
-**Phase 4:** Add timestamp editing for historical footage, add stop/cancel button, resume button and configure button to dashboard page.
+- Bottom/Right Panel: The Analytics (Charts, Logs) that update as the video plays.
 
-testing
+**State 1: Configuration Mode (Default on Load)**
+- Sidebar: Open. User sees "Upload Video" and "Camera Role: Entry/Exit".
+
+- Center: Shows the First Frame of the video.
+
+- Action: User draws the line directly on this frame.
+
+- Button: A large "Start Analysis" button is visible.
+
+**State 2: Analysis Mode (After Clicking Start)**
+- Sidebar: Automatically collapses or switches to "Job Status" (Progress bar).
+
+- Center: Switches to the Processed Video Feed (showing bounding boxes).
+
+- Action: The user watches the analysis.
+
+- Button: "Stop/Edit" button appears to return to State 1
