@@ -60,14 +60,24 @@
         </div>
 
         <div class="sidebar-footer">
-            <button id="btn-start-analysis" class="btn btn-primary btn-full btn-lg">
+            <button id="btn-start-analysis" class="btn btn-primary btn-full btn-lg" disabled>
                 <i data-feather="play"></i> Start Analysis
             </button>
             <div id="processing-status" class="hidden mt-2">
-                <div class="progress-bar">
-                    <div class="progress-bar-fill" id="progress-bar" style="width: 0%"></div>
+                <div class="dual-progress">
+                    <div class="progress-item">
+                        <span class="progress-label">Entry: <span id="entry-progress-text">0%</span></span>
+                        <div class="progress-bar">
+                            <div class="progress-bar-fill" id="entry-progress-bar" style="width: 0%"></div>
+                        </div>
+                    </div>
+                    <div class="progress-item">
+                        <span class="progress-label">Exit: <span id="exit-progress-text">0%</span></span>
+                        <div class="progress-bar">
+                            <div class="progress-bar-fill" id="exit-progress-bar" style="width: 0%"></div>
+                        </div>
+                    </div>
                 </div>
-                <div class="text-center mt-1"><small id="processing-text">Processing...</small></div>
             </div>
         </div>
     </aside>
@@ -78,23 +88,44 @@
             <div class="stage-header">
                 <div class="stage-title">
                     <span class="badge badge-processing hidden" id="live-badge">LIVE ANALYSIS</span>
-                    <h3 id="stage-label">Entry Camera Preview</h3>
+                    <h3>Camera Preview</h3>
                 </div>
                 <div class="stage-controls">
                     <span class="text-secondary" style="font-size: 0.9rem;">Mode: <span id="mode-label">Setup</span></span>
                 </div>
             </div>
 
-            <div class="video-wrapper" id="video-container">
-                <canvas id="setup-canvas"></canvas>
-                
-                <img id="live-feed" src="" class="hidden" alt="Analysis Feed">
+            <div class="dual-camera-grid">
+                <!-- Entry Camera -->
+                <div class="camera-preview-card" id="entry-camera-card">
+                    <div class="camera-header">
+                        <span class="badge badge-entry"><i data-feather="log-in"></i> ENTRY</span>
+                        <span class="camera-status" id="entry-camera-status">Not Configured</span>
+                    </div>
+                    <div class="video-wrapper" id="entry-video-container">
+                        <canvas id="entry-canvas"></canvas>
+                        <img id="entry-live-feed" src="" class="hidden" alt="Entry Feed">
+                        <div id="entry-placeholder" class="stage-placeholder">
+                            <i data-feather="video" style="width: 36px; height: 36px; opacity: 0.5;"></i>
+                            <p>Upload Entry Camera Video</p>
+                        </div>
+                    </div>
+                </div>
 
-                <video id="preview-player" style="display:none;" muted playsinline></video>
-
-                <div id="stage-placeholder" class="stage-placeholder">
-                    <i data-feather="video" style="width: 48px; height: 48px; opacity: 0.5;"></i>
-                    <p>Select a camera and upload video to begin configuration</p>
+                <!-- Exit Camera -->
+                <div class="camera-preview-card" id="exit-camera-card">
+                    <div class="camera-header">
+                        <span class="badge badge-exit"><i data-feather="log-out"></i> EXIT</span>
+                        <span class="camera-status" id="exit-camera-status">Not Configured</span>
+                    </div>
+                    <div class="video-wrapper" id="exit-video-container">
+                        <canvas id="exit-canvas"></canvas>
+                        <img id="exit-live-feed" src="" class="hidden" alt="Exit Feed">
+                        <div id="exit-placeholder" class="stage-placeholder">
+                            <i data-feather="video" style="width: 36px; height: 36px; opacity: 0.5;"></i>
+                            <p>Upload Exit Camera Video</p>
+                        </div>
+                    </div>
                 </div>
             </div>
         </section>
@@ -111,7 +142,7 @@
                     </div>
                 </div>
                 <div class="kpi-card">
-                    <div class="kpi-icon orange"><i data-feather="arrow-up-circle"></i></div>
+                    <div class="kpi-icon red"><i data-feather="arrow-up-circle"></i></div>
                     <div class="kpi-content">
                         <div class="kpi-label">Vehicles Out</div>
                         <div class="kpi-value negative" id="vehicles-out">0</div>
@@ -125,7 +156,7 @@
                     </div>
                 </div>
                 <div class="kpi-card">
-                    <div class="kpi-icon red"><i data-feather="users"></i></div>
+                    <div class="kpi-icon orange"><i data-feather="users"></i></div>
                     <div class="kpi-content">
                         <div class="kpi-label">Est. People Range</div>
                         <div class="kpi-value" id="people-range">0 - 0</div>

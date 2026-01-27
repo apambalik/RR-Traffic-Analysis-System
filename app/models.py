@@ -35,14 +35,17 @@ class SessionData:
         
     def get_statistics(self) -> Dict:
         """Calculate current statistics"""
-        vehicles_in = sum(1 for e in self.events if e.direction == 'IN')
-        vehicles_out = sum(1 for e in self.events if e.direction == 'OUT')
+        # Sort events by timestamp to ensure accurate calculation
+        sorted_events = sorted(self.events, key=lambda e: e.timestamp)
         
-        people_min = sum(e.seats_min for e in self.events if e.direction == 'IN')
-        people_max = sum(e.seats_max for e in self.events if e.direction == 'IN')
+        vehicles_in = sum(1 for e in sorted_events if e.direction == 'IN')
+        vehicles_out = sum(1 for e in sorted_events if e.direction == 'OUT')
         
-        people_min_out = sum(e.seats_min for e in self.events if e.direction == 'OUT')
-        people_max_out = sum(e.seats_max for e in self.events if e.direction == 'OUT')
+        people_min = sum(e.seats_min for e in sorted_events if e.direction == 'IN')
+        people_max = sum(e.seats_max for e in sorted_events if e.direction == 'IN')
+        
+        people_min_out = sum(e.seats_min for e in sorted_events if e.direction == 'OUT')
+        people_max_out = sum(e.seats_max for e in sorted_events if e.direction == 'OUT')
         
         return {
             'vehicles_in': vehicles_in,
