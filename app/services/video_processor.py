@@ -1,219 +1,166 @@
+"""
+Video Processor Module
+
+Handles vehicle detection using RF-DETR model.
+Provides model inference and first frame extraction capabilities.
+"""
+
+from __future__ import annotations
+
 import cv2
-import os
-from pathlib import Path
+import numpy as np
 from PIL import Image
-import supervision as sv
-import time
+from typing import TYPE_CHECKING, Tuple, Optional
+
 import torch
-import queue
 from rfdetr import RFDETRBase
-from datetime import datetime
-from app.models import VehicleEvent, SessionData
+
 from app.config import Config
-from app.utils.math_utils import calculate_line_signed_distance
+
+if TYPE_CHECKING:
+    import supervision as sv
+
+
+# =============================================================================
+# CONSTANTS
+# =============================================================================
+
+# Vehicle class names from the trained model
+VEHICLE_CLASSES = (
+    'cars-counter',  # Generic vehicle (index 0)
+    'Bus',
+    'Motorcycle', 
+    'Pickup',
+    'Sedan',
+    'SUV',
+    'Truck',
+    'Van'
+)
+
+
+# =============================================================================
+# VIDEO PROCESSOR CLASS
+# =============================================================================
 
 class VideoProcessor:
-    def __init__(self, model_path: str):
-        self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
-        print(f"Loading model on: {self.device}")
-        self.model = RFDETRBase(pretrain_weights=model_path)
-        # Move internal model to device (RFDETRBase might need manual moving 
-        # or it might have a .to() method depending on implementation)
-        if hasattr(self.model, 'model') and hasattr(self.model.model, 'to'):
-             self.model.model.to(self.device)
-        self.class_names = ['cars-counter', 'Bus', 'Motorcycle', 'Pickup', 'Sedan', 'SUV', 'Truck', 'Van']
-        self.vehicle_capacity = Config.VEHICLE_CAPACITY
-        
-    def extract_first_frame(self, video_path: str) -> tuple:
-        """Extract first frame for line drawing"""
-        cap = cv2.VideoCapture(video_path)
-        ret, frame = cap.read()
-        cap.release()
-        
-        if not ret:
-            raise RuntimeError("Unable to read video")
-        
-        frame = cv2.resize(frame, (Config.FRAME_WIDTH, Config.FRAME_HEIGHT))
-        return frame, (Config.FRAME_WIDTH, Config.FRAME_HEIGHT)
+    """
+    Handles vehicle detection using RF-DETR object detection model.
     
-    def process_video(self, video_path: str, line_points: list, 
-                     session_data: SessionData,
-                     camera_role: str = 'ENTRY',
-                     progress_callback=None) -> str:
+    This class is responsible for:
+    - Loading and managing the detection model
+    - Running inference on images/frames
+    - Extracting video frames for configuration
+    
+    Attributes:
+        device: The device to run inference on ('cuda' or 'cpu')
+        model: The RF-DETR detection model
+        class_names: List of vehicle class names
+        vehicle_capacity: Dict mapping vehicle types to passenger capacity
+    """
+    
+    def __init__(self, model_path: str):
         """
-        Process video with vehicle detection and counting
-        Returns path to output video
+        Initialize the video processor with a pre-trained model.
+        
+        Args:
+            model_path: Path to the model weights file
+        """
+        self.device = self._get_device()
+        self.model = self._load_model(model_path)
+        self.class_names = VEHICLE_CLASSES
+        self.vehicle_capacity = Config.VEHICLE_CAPACITY
+    
+    @staticmethod
+    def _get_device() -> str:
+        """Determine the best available device for inference."""
+        device = 'cuda' if torch.cuda.is_available() else 'cpu'
+        print(f"VideoProcessor: Using device '{device}'")
+        return device
+    
+    def _load_model(self, model_path: str) -> RFDETRBase:
+        """
+        Load the RF-DETR model and move to appropriate device.
+        
+        Args:
+            model_path: Path to model weights
+            
+        Returns:
+            Loaded model ready for inference
+        """
+        model = RFDETRBase(pretrain_weights=model_path)
+        
+        # Move model to device if supported
+        if hasattr(model, 'model') and hasattr(model.model, 'to'):
+            model.model.to(self.device)
+        
+        return model
+    
+    def detect(self, image: Image.Image, threshold: float = None) -> 'sv.Detections':
+        """
+        Run vehicle detection on an image.
+        
+        Args:
+            image: PIL Image to run detection on
+            threshold: Confidence threshold (uses Config default if None)
+            
+        Returns:
+            Supervision Detections object with detection results
+        """
+        if threshold is None:
+            threshold = Config.CONFIDENCE_THRESHOLD
+            
+        return self.model.predict(image, threshold=threshold)
+    
+    def extract_first_frame(self, video_path: str) -> Tuple[np.ndarray, Tuple[int, int]]:
+        """
+        Extract and resize the first frame from a video file.
+        
+        Used for displaying the frame during counting line configuration.
+        
+        Args:
+            video_path: Path to the video file
+            
+        Returns:
+            Tuple of (frame as numpy array, (width, height))
+            
+        Raises:
+            RuntimeError: If video cannot be read
         """
         cap = cv2.VideoCapture(video_path)
-        fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
-        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-        
-        # Setup output video
-        fourcc = cv2.VideoWriter_fourcc(*"mp4v")
-        output_filename = f"{session_data.session_id}_processed.mp4"
-        output_path = os.path.join(Config.OUTPUT_FOLDER, output_filename)
-        writer = cv2.VideoWriter(output_path, fourcc, fps, 
-                               (Config.FRAME_WIDTH, Config.FRAME_HEIGHT))
-        
-        # Initialize tracker
-        tracker = sv.ByteTrack(
-            track_thresh=0.25,
-            track_buffer=30,
-            match_thresh=0.8,
-            frame_rate=int(fps)
-        )
-        
-        # Tracking state
-        track_class = {}
-        track_last_dist = {}
-        counted_track_ids = set()
-        
-        # Annotators
-        color = sv.ColorPalette.from_hex([
-            "#ffff00", "#ff9b00", "#ff66ff", "#3399ff", 
-            "#ff66b2", "#ff8080", "#b266ff"
-        ])
-        bbox_annotator = sv.BoxAnnotator(color=color)
-        label_annotator = sv.LabelAnnotator(color=color, text_color=sv.Color.BLACK)
-        trace_annotator = sv.TraceAnnotator(color=color)
-        
-        frame_idx = 0
-        
-        # Get frame queue for streaming
-        try:
-            from app.routes.dashboard import frame_queues
-            frame_queue = frame_queues.get(camera_role)
-            print(f"Frame queue obtained for {camera_role} camera: {frame_queue is not None}")
-        except ImportError:
-            frame_queue = None
-            print("Warning: Could not import frame_queues, streaming disabled")
         
         try:
-            retry_count = 0
-            while True:
-                ret, frame = cap.read()
-                if not ret:
-                    if isinstance(video_path, str) and video_path.startswith(('rtsp://', 'http://')):
-                        retry_count += 1
-                        if retry_count < 5:
-                            time.sleep(1)
-                            continue
-                    break
-                retry_count = 0
-                
-                resized_frame = cv2.resize(frame, (Config.FRAME_WIDTH, Config.FRAME_HEIGHT))
-                rgb_frame = cv2.cvtColor(resized_frame, cv2.COLOR_BGR2RGB)
-                pil_image = Image.fromarray(rgb_frame)
-                
-                # Detect vehicles
-                detections = self.model.predict(pil_image, 
-                                              threshold=Config.CONFIDENCE_THRESHOLD)
-                detections = tracker.update_with_detections(detections)
-                
-                # Build labels
-                labels = [
-                    f"#{tid} {self.class_names[cid]} {conf:.2f}"
-                    for tid, cid, conf in zip(detections.tracker_id, 
-                                             detections.class_id, 
-                                             detections.confidence)
-                ]
-                
-                # Annotate frame
-                annotated_frame = resized_frame.copy()
-                annotated_frame = trace_annotator.annotate(annotated_frame, detections)
-                annotated_frame = bbox_annotator.annotate(annotated_frame, detections)
-                annotated_frame = label_annotator.annotate(annotated_frame, detections, labels)
-                
-                # Draw counting line (convert to integer tuples)
-                pt1 = (int(line_points[0][0]), int(line_points[0][1]))
-                pt2 = (int(line_points[1][0]), int(line_points[1][1]))
-                cv2.line(annotated_frame, pt1, pt2, (0, 255, 0), 2)
-                
-                # Count crossings
-                self._process_detections(detections, line_points, track_class, 
-                                       track_last_dist, counted_track_ids, 
-                                       session_data)
-                
-                # Write to output file
-                writer.write(annotated_frame)
-                
-                # Push frame to streaming queue (for real-time display)
-                if frame_queue is not None and frame_idx % 2 == 0:  # Stream every 2nd frame to reduce load
-                    try:
-                        # Non-blocking put - skip frame if queue is full
-                        frame_queue.put_nowait(annotated_frame.copy())
-                    except queue.Full:
-                        # Queue full, skip this frame
-                        pass
-                    except Exception as e:
-                        print(f"Error pushing frame to queue: {e}")
-                
-                # Progress callback
-                if progress_callback and frame_idx % 30 == 0:
-                    progress = (frame_idx / total_frames) * 100
-                    progress_callback(progress)
-                
-                frame_idx += 1
-                
+            ret, frame = cap.read()
+            if not ret:
+                raise RuntimeError(f"Unable to read video: {video_path}")
+            
+            # Resize to standard processing dimensions
+            frame = cv2.resize(frame, (Config.FRAME_WIDTH, Config.FRAME_HEIGHT))
+            return frame, (Config.FRAME_WIDTH, Config.FRAME_HEIGHT)
         finally:
             cap.release()
-            writer.release()
-        
-        return output_path
     
-    def _process_detections(self, detections, line_points, track_class,
-                           track_last_dist, counted_track_ids, session_data):
-        """Process detections and count crossings"""
-        for tracker_id, class_id, xyxy in zip(
-            detections.tracker_id, detections.class_id, detections.xyxy
-        ):
-            if tracker_id is None:
-                continue
-            
-            cx = int((xyxy[0] + xyxy[2]) / 2)
-            cy = int((xyxy[1] + xyxy[3]) / 2)
-            
-            # Convert line points to integers
-            lp1 = (int(line_points[0][0]), int(line_points[0][1]))
-            lp2 = (int(line_points[1][0]), int(line_points[1][1]))
-            dist, is_within = calculate_line_signed_distance(lp1, lp2, (cx, cy))
-            
-            prev_data = track_last_dist.get(tracker_id)
-            track_class[tracker_id] = int(class_id)
-            
-            # Check for crossing
-            if prev_data is not None and tracker_id not in counted_track_ids:
-                prev_dist, prev_within = prev_data
-                
-                if (prev_dist * dist < 0 and 
-                    min(abs(prev_dist), abs(dist)) < 25.0 and
-                    (is_within or prev_within)):
-                    
-                    cls_name = self.class_names[track_class[tracker_id]]
-                    direction = 'IN' if dist > 0 else 'OUT'
-                    
-                    capacity = self.vehicle_capacity.get(cls_name, {'min': 1, 'max': 1})
-                    
-                    event = VehicleEvent(
-                        vehicle_type=cls_name,
-                        direction=direction,
-                        timestamp=datetime.now(),
-                        seats_min=capacity['min'],
-                        seats_max=capacity['max']
-                    )
-                    
-                    session_data.add_event(event)
-                    counted_track_ids.add(tracker_id)
-            
-            track_last_dist[tracker_id] = (dist, is_within)
-    
-    def _draw_counts(self, frame, session_data):
-        """Draw vehicle counts on frame"""
-        stats = session_data.get_statistics()
-        y_offset = 30
+    def get_vehicle_capacity(self, vehicle_type: str) -> dict:
+        """
+        Get the passenger capacity range for a vehicle type.
         
-        for vehicle_type, count in stats['vehicle_distribution'].items():
-            cv2.putText(frame, f"{vehicle_type}: {count}", 
-                       (10, y_offset), cv2.FONT_HERSHEY_SIMPLEX, 
-                       0.6, (0, 255, 255), 2)
-            y_offset += 25
+        Args:
+            vehicle_type: The vehicle class name
+            
+        Returns:
+            Dict with 'min' and 'max' passenger counts
+        """
+        return self.vehicle_capacity.get(vehicle_type, {'min': 1, 'max': 1})
+    
+    def get_class_name(self, class_id: int) -> str:
+        """
+        Get the vehicle class name for a class ID.
+        
+        Args:
+            class_id: The numeric class ID from detection
+            
+        Returns:
+            Human-readable class name
+        """
+        if 0 <= class_id < len(self.class_names):
+            return self.class_names[class_id]
+        return 'Unknown'
