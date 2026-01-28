@@ -29,3 +29,9 @@ class Config:
         'Bus': {'min': 1, 'max': 50},
         'Truck': {'min': 1, 'max': 3}
     }
+    
+    # Live Stream Settings
+    LIVE_STREAM_RETRY_ATTEMPTS = 5
+    LIVE_STREAM_RETRY_DELAY = 2  # seconds between reconnection attempts
+    LIVE_STREAM_CONNECTION_TIMEOUT = 10  # seconds to wait for initial connection
+    LIVE_STREAM_BUFFER_SIZE = 1  # minimize latency by keeping buffer small

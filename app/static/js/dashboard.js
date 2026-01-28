@@ -19,7 +19,13 @@ const PROCESSING_STATUS = Object.freeze({
     PENDING: 'pending',
     PROCESSING: 'processing',
     COMPLETED: 'completed',
+    STOPPED: 'stopped',
     ERROR: 'error'
+});
+
+const SOURCE_TYPE = Object.freeze({
+    FILE: 'file',
+    STREAM: 'stream'
 });
 
 const CONFIG = Object.freeze({
@@ -88,7 +94,8 @@ const createCameraConfig = () => ({
     hasLine: false,
     videoName: '',
     processingStatus: PROCESSING_STATUS.PENDING,
-    progress: 0
+    progress: 0,
+    isLiveStream: false
 });
 
 /**
@@ -488,6 +495,8 @@ class WorkbenchManager {
     constructor() {
         this.currentCameraRole = CAMERA_ROLES.ENTRY;
         this.sessionCompleted = false;
+        this.sourceType = SOURCE_TYPE.FILE;  // Current source type selection
+        this.hasLiveStreams = false;  // Track if any camera is using live stream
 
         // LineDrawer instances per camera
         this.lineDrawers = {
@@ -538,13 +547,21 @@ class WorkbenchManager {
             videoUpload: getElement('video-upload'),
             fileName: getElement('file-name-display'),
             startBtn: getElement('btn-start-analysis'),
+            stopBtn: getElement('btn-stop-analysis'),
             clearLineBtn: getElement('clear-line-btn'),
             configStatusText: getElement('config-status-text'),
             configStatusDot: getElement('config-status-dot'),
             processingStatus: getElement('processing-status'),
             locationInput: getElement('location-input'),
             modeLabel: getElement('mode-label'),
-            liveBadge: getElement('live-badge')
+            liveBadge: getElement('live-badge'),
+            // Source type elements
+            sourceFileBtn: getElement('source-file-btn'),
+            sourceStreamBtn: getElement('source-stream-btn'),
+            fileSourceConfig: getElement('file-source-config'),
+            streamSourceConfig: getElement('stream-source-config'),
+            streamUrlInput: getElement('stream-url-input'),
+            streamStatusDisplay: getElement('stream-status-display')
         };
     }
 
@@ -559,7 +576,7 @@ class WorkbenchManager {
     // -------------------------------------------------------------------------
 
     setupEventListeners() {
-        const { videoUpload, clearLineBtn, startBtn } = this.globalElements;
+        const { videoUpload, clearLineBtn, startBtn, stopBtn } = this.globalElements;
 
         if (videoUpload) {
             videoUpload.addEventListener('change', (e) => this.handleVideoUpload(e));
@@ -570,6 +587,132 @@ class WorkbenchManager {
         if (startBtn) {
             startBtn.addEventListener('click', () => this.startAnalysis());
         }
+        if (stopBtn) {
+            stopBtn.addEventListener('click', () => this.stopAnalysis());
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // Source Type Management
+    // -------------------------------------------------------------------------
+
+    /**
+     * Switch between file upload and live stream source types
+     * @param {string} type - 'file' or 'stream'
+     */
+    setSourceType(type) {
+        this.sourceType = type;
+        const { sourceFileBtn, sourceStreamBtn, fileSourceConfig, streamSourceConfig } = this.globalElements;
+
+        if (type === SOURCE_TYPE.FILE) {
+            sourceFileBtn?.classList.add('active');
+            sourceStreamBtn?.classList.remove('active');
+            fileSourceConfig?.classList.remove('hidden');
+            streamSourceConfig?.classList.add('hidden');
+        } else {
+            sourceFileBtn?.classList.remove('active');
+            sourceStreamBtn?.classList.add('active');
+            fileSourceConfig?.classList.add('hidden');
+            streamSourceConfig?.classList.remove('hidden');
+        }
+
+        feather.replace();
+    }
+
+    /**
+     * Connect to a live stream and capture first frame
+     */
+    async connectStream() {
+        const { streamUrlInput, streamStatusDisplay } = this.globalElements;
+        const streamUrl = streamUrlInput?.value?.trim();
+
+        if (!streamUrl) {
+            alert('Please enter a stream URL');
+            return;
+        }
+
+        // Validate URL format
+        if (!streamUrl.match(/^(rtsp|http|https|rtmp):\/\//i)) {
+            alert('Invalid URL. Must start with rtsp://, http://, https://, or rtmp://');
+            return;
+        }
+
+        streamStatusDisplay.textContent = 'Connecting...';
+
+        try {
+            const response = await fetch('/setup/configure-stream', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    stream_url: streamUrl,
+                    camera_role: this.currentCameraRole
+                })
+            });
+            const data = await response.json();
+
+            if (data.success) {
+                const config = this.cameraConfigs[this.currentCameraRole];
+                config.hasVideo = true;
+                config.videoName = 'Live Stream';
+                config.isLiveStream = true;
+                this.hasLiveStreams = true;
+
+                streamStatusDisplay.textContent = 'Connected';
+                streamStatusDisplay.style.color = 'var(--success-color)';
+
+                // Load the captured frame for line drawing
+                await this.loadStreamFrame(this.currentCameraRole, data.frame, data.line_points);
+                this.updateStartButtonState();
+            } else {
+                streamStatusDisplay.textContent = data.error || 'Connection failed';
+                streamStatusDisplay.style.color = 'var(--danger-color)';
+            }
+        } catch (error) {
+            streamStatusDisplay.textContent = 'Connection error';
+            streamStatusDisplay.style.color = 'var(--danger-color)';
+            console.error('Stream connection error:', error);
+        }
+    }
+
+    /**
+     * Load a stream frame for line drawing
+     */
+    async loadStreamFrame(role, frameBase64, existingLinePoints) {
+        const camEls = this.cameraElements[role];
+        const config = this.cameraConfigs[role];
+
+        // Update visibility
+        if (camEls.placeholder) camEls.placeholder.style.display = 'none';
+        if (camEls.canvas) camEls.canvas.style.display = 'block';
+        if (camEls.liveFeed) camEls.liveFeed.classList.add('hidden');
+
+        // Create LineDrawer
+        const canvasId = `${role.toLowerCase()}-canvas`;
+        this.lineDrawers[role] = new LineDrawer(canvasId);
+        await this.lineDrawers[role].loadImage('data:image/jpeg;base64,' + frameBase64);
+
+        // Restore existing line if present
+        if (existingLinePoints) {
+            this.lineDrawers[role].setLinePoints(existingLinePoints);
+            config.hasLine = true;
+            this.updateCameraStatusText(role);
+            this.updateStartButtonState();
+        }
+
+        // Set up line completion callback
+        this.lineDrawers[role].onLineComplete = (points) => {
+            config.hasLine = true;
+            this.updateCameraStatusText(role);
+            this.updateStartButtonState();
+            this.saveLine(role, points);
+
+            if (this.currentCameraRole === role) {
+                this.globalElements.clearLineBtn.disabled = false;
+                this.updateSidebarStatus();
+            }
+        };
+
+        this.updateCameraStatusText(role);
     }
 
     // -------------------------------------------------------------------------
@@ -639,21 +782,21 @@ class WorkbenchManager {
         const statusEl = this.cameraElements[role].statusText;
         if (!statusEl) return;
 
-        const statusConfig = {
-            [PROCESSING_STATUS.PROCESSING]: {
-                text: `Processing ${config.progress}%`,
-                className: 'camera-status processing'
-            },
-            [PROCESSING_STATUS.COMPLETED]: {
-                text: 'Completed',
-                className: 'camera-status completed'
+        // Handle processing status
+        if (config.processingStatus === PROCESSING_STATUS.PROCESSING) {
+            if (config.isLiveStream || config.progress === -1) {
+                statusEl.textContent = 'LIVE';
+                statusEl.className = 'camera-status live';
+            } else {
+                statusEl.textContent = `Processing ${config.progress}%`;
+                statusEl.className = 'camera-status processing';
             }
-        };
-
-        if (statusConfig[config.processingStatus]) {
-            const { text, className } = statusConfig[config.processingStatus];
-            statusEl.textContent = text;
-            statusEl.className = className;
+        } else if (config.processingStatus === PROCESSING_STATUS.COMPLETED) {
+            statusEl.textContent = 'Completed';
+            statusEl.className = 'camera-status completed';
+        } else if (config.processingStatus === PROCESSING_STATUS.STOPPED) {
+            statusEl.textContent = 'Stopped';
+            statusEl.className = 'camera-status completed';
         } else if (config.hasLine) {
             statusEl.textContent = 'Ready';
             statusEl.className = 'camera-status ready';
@@ -669,10 +812,16 @@ class WorkbenchManager {
     updateCameraProgress(role) {
         const config = this.cameraConfigs[role];
         const { progressBar, progressText } = this.cameraElements[role];
-        const progress = config.progress || 0;
 
-        if (progressBar) progressBar.style.width = `${progress}%`;
-        if (progressText) progressText.textContent = `${progress}%`;
+        // Handle live stream display
+        if (config.isLiveStream || config.progress === -1) {
+            if (progressBar) progressBar.style.width = '100%';
+            if (progressText) progressText.textContent = 'LIVE';
+        } else {
+            const progress = config.progress || 0;
+            if (progressBar) progressBar.style.width = `${progress}%`;
+            if (progressText) progressText.textContent = `${progress}%`;
+        }
     }
 
     // -------------------------------------------------------------------------
@@ -704,7 +853,14 @@ class WorkbenchManager {
         const config = this.cameraConfigs[data.camera_role];
         if (!config) return;
 
-        config.progress = data.progress;
+        // Handle live stream progress differently
+        if (data.is_live || data.progress === -1) {
+            config.progress = -1;  // -1 indicates live stream
+            config.isLiveStream = true;
+        } else {
+            config.progress = data.progress;
+        }
+
         if (config.processingStatus === PROCESSING_STATUS.PENDING) {
             config.processingStatus = PROCESSING_STATUS.PROCESSING;
         }
@@ -719,11 +875,24 @@ class WorkbenchManager {
 
     checkAllCompleted() {
         const allDone = Object.values(CAMERA_ROLES).every(
-            role => this.cameraConfigs[role].processingStatus === PROCESSING_STATUS.COMPLETED
+            role => this.cameraConfigs[role].processingStatus === PROCESSING_STATUS.COMPLETED ||
+                   this.cameraConfigs[role].processingStatus === PROCESSING_STATUS.STOPPED
         );
+
+        const anyProcessing = Object.values(CAMERA_ROLES).some(
+            role => this.cameraConfigs[role].processingStatus === PROCESSING_STATUS.PROCESSING
+        );
+
+        // Show/hide stop button based on processing state and live streams
+        if (anyProcessing && this.hasLiveStreams) {
+            this.globalElements.stopBtn?.classList.remove('hidden');
+        } else {
+            this.globalElements.stopBtn?.classList.add('hidden');
+        }
 
         if (allDone) {
             this.sessionCompleted = true;
+            this.hasLiveStreams = false;
 
             // Disable continue mode
             if (window.dashboardManager) {
@@ -732,6 +901,7 @@ class WorkbenchManager {
 
             this.globalElements.startBtn.innerHTML = `<i data-feather="check"></i> Analysis Complete`;
             this.globalElements.startBtn.disabled = true;
+            this.globalElements.stopBtn?.classList.add('hidden');
             this.globalElements.processingStatus.classList.add('hidden');
             feather.replace();
         }
@@ -922,11 +1092,23 @@ class WorkbenchManager {
                 if (data.success) {
                     if (!sessionId) sessionId = data.session_id;
                     this.cameraConfigs[role].processingStatus = PROCESSING_STATUS.PROCESSING;
+                    
+                    // Track if this is a live stream
+                    if (data.is_live_stream) {
+                        this.cameraConfigs[role].isLiveStream = true;
+                        this.hasLiveStreams = true;
+                    }
+                    
                     this.updateCameraStatusText(role);
                     this.setAnalysisMode(true, role);
                 } else {
                     throw new Error(`${role} camera: ${data.error}`);
                 }
+            }
+
+            // Show stop button for live streams
+            if (this.hasLiveStreams) {
+                this.globalElements.stopBtn?.classList.remove('hidden');
             }
 
             // Join socket room
@@ -961,6 +1143,54 @@ class WorkbenchManager {
 
         this.globalElements.liveBadge.classList.remove('hidden');
         this.globalElements.modeLabel.textContent = 'Live Analysis';
+    }
+
+    /**
+     * Stop all running analysis (for live streams)
+     */
+    async stopAnalysis() {
+        const { stopBtn, startBtn, processingStatus } = this.globalElements;
+
+        stopBtn.disabled = true;
+        stopBtn.innerHTML = `<i data-feather="loader" class="spin"></i> Stopping...`;
+        feather.replace();
+
+        try {
+            const response = await fetch('/setup/stop-processing', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({})  // Stop all cameras
+            });
+            const data = await response.json();
+
+            if (data.success) {
+                console.log('Stop signal sent successfully');
+                
+                // Update UI - the actual completion will come via socket events
+                Object.values(CAMERA_ROLES).forEach(role => {
+                    const config = this.cameraConfigs[role];
+                    if (config.processingStatus === PROCESSING_STATUS.PROCESSING) {
+                        config.processingStatus = PROCESSING_STATUS.STOPPED;
+                        this.updateCameraStatusText(role);
+                    }
+                });
+
+                this.sessionCompleted = true;
+                this.hasLiveStreams = false;
+                
+                stopBtn.classList.add('hidden');
+                startBtn.innerHTML = `<i data-feather="check"></i> Analysis Stopped`;
+                startBtn.disabled = true;
+                processingStatus.classList.add('hidden');
+            }
+        } catch (error) {
+            console.error('Failed to stop analysis:', error);
+            alert('Failed to stop analysis: ' + error.message);
+        }
+
+        stopBtn.disabled = false;
+        stopBtn.innerHTML = `<i data-feather="square"></i> Stop Analysis`;
+        feather.replace();
     }
 
     // -------------------------------------------------------------------------

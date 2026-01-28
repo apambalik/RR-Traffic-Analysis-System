@@ -38,7 +38,20 @@
             </div>
 
             <div class="config-group mt-2">
-                <label class="form-label">Video Source</label>
+                <label class="form-label">Source Type</label>
+                <div class="source-toggle">
+                    <button class="toggle-btn active" id="source-file-btn" onclick="window.workbenchManager?.setSourceType('file')">
+                        <i data-feather="upload"></i> File
+                    </button>
+                    <button class="toggle-btn" id="source-stream-btn" onclick="window.workbenchManager?.setSourceType('stream')">
+                        <i data-feather="video"></i> Live Stream
+                    </button>
+                </div>
+            </div>
+
+            <!-- File Upload (shown when source type is 'file') -->
+            <div class="config-group" id="file-source-config">
+                <label class="form-label">Video File</label>
                 <input type="file" id="video-upload" accept="video/*" class="form-input" style="display: none;">
                 <button class="btn btn-outline btn-full" onclick="document.getElementById('video-upload').click()">
                     <i data-feather="upload"></i> Upload Video File
@@ -46,10 +59,20 @@
                 <div id="file-name-display" class="file-name text-truncate mt-1">No file selected</div>
             </div>
 
+            <!-- Live Stream URL (shown when source type is 'stream') -->
+            <div class="config-group hidden" id="stream-source-config">
+                <label class="form-label">Stream URL</label>
+                <input type="text" id="stream-url-input" class="form-input" placeholder="rtsp://192.168.1.100:554/stream">
+                <button class="btn btn-outline btn-full mt-1" id="btn-connect-stream" onclick="window.workbenchManager?.connectStream()">
+                    <i data-feather="link"></i> Connect to Stream
+                </button>
+                <div id="stream-status-display" class="file-name text-truncate mt-1">Not connected</div>
+            </div>
+
             <div class="config-group">
                 <label class="form-label">Instructions</label>
                 <ul class="instruction-list">
-                    <li>1. Upload a video.</li>
+                    <li>1. Select source type and configure.</li>
                     <li>2. Draw the crossing line on the canvas.</li>
                     <li>3. Repeat for other camera.</li>
                 </ul>
@@ -62,6 +85,9 @@
         <div class="sidebar-footer">
             <button id="btn-start-analysis" class="btn btn-primary btn-full btn-lg" disabled>
                 <i data-feather="play"></i> Start Analysis
+            </button>
+            <button id="btn-stop-analysis" class="btn btn-danger btn-full btn-lg hidden mt-2">
+                <i data-feather="square"></i> Stop Analysis
             </button>
             <div id="processing-status" class="hidden mt-2">
                 <div class="dual-progress">

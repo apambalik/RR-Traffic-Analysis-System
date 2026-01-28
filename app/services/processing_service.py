@@ -38,6 +38,7 @@ class ProcessingStatus(str, Enum):
     PENDING = 'pending'
     PROCESSING = 'processing'
     COMPLETED = 'completed'
+    STOPPED = 'stopped'
     ERROR = 'error'
 
 
@@ -45,6 +46,12 @@ class CameraRole(str, Enum):
     """Camera role identifiers."""
     ENTRY = 'ENTRY'
     EXIT = 'EXIT'
+
+
+class VideoSource(str, Enum):
+    """Video input source types."""
+    FILE = 'file'
+    LIVE_STREAM = 'live_stream'
 
 
 @dataclass
@@ -107,6 +114,10 @@ class ProcessingJob:
     progress: int = 0
     error: Optional[str] = None
     thread: Optional[threading.Thread] = None
+    # Live stream support
+    is_live_stream: bool = False
+    should_stop: bool = False
+    frames_processed: int = 0
     
     def to_dict(self) -> dict:
         """Convert job to dictionary for serialization."""
@@ -116,8 +127,14 @@ class ProcessingJob:
             'progress': self.progress,
             'error': self.error,
             'location': self.location,
-            'camera_role': self.camera_role
+            'camera_role': self.camera_role,
+            'is_live_stream': self.is_live_stream,
+            'frames_processed': self.frames_processed
         }
+    
+    def stop(self) -> None:
+        """Signal the job to stop processing."""
+        self.should_stop = True
     
     @property
     def line_points_int(self) -> Tuple[Tuple[int, int], Tuple[int, int]]:
@@ -138,24 +155,30 @@ def start_processing(
     line_points: List[List[float]],
     location: str,
     video_start_time: datetime = None,
-    camera_role: str = CameraRole.ENTRY.value
+    camera_role: str = CameraRole.ENTRY.value,
+    is_live_stream: bool = False
 ) -> ProcessingJob:
     """
     Start video processing in a background thread.
     
     Args:
         session_id: Unique identifier for the session
-        video_path: Path to the video file
+        video_path: Path to the video file or stream URL
         line_points: Counting line coordinates [[x1,y1], [x2,y2]]
         location: Location name for the session
         video_start_time: Timestamp for the video start
         camera_role: 'ENTRY' or 'EXIT' camera designation
+        is_live_stream: Whether the source is a live stream (RTSP/HTTP)
         
     Returns:
         ProcessingJob instance for tracking progress
     """
     # Clear stale frames from queue
     _clear_frame_queue(camera_role)
+    
+    # Auto-detect live stream if not explicitly set
+    if not is_live_stream:
+        is_live_stream = _is_live_stream(video_path)
     
     # Create job
     job = ProcessingJob(
@@ -164,7 +187,8 @@ def start_processing(
         line_points=line_points,
         location=location,
         camera_role=camera_role,
-        video_start_time=video_start_time or datetime.now()
+        video_start_time=video_start_time or datetime.now(),
+        is_live_stream=is_live_stream
     )
     
     # Store job in global registry
@@ -182,6 +206,44 @@ def start_processing(
     job.thread.start()
     
     return job
+
+
+def stop_processing(session_id: str, camera_role: str = None) -> bool:
+    """
+    Stop a running processing job.
+    
+    Args:
+        session_id: The session ID to stop
+        camera_role: Specific camera to stop, or None to stop all
+        
+    Returns:
+        True if job(s) were signaled to stop, False if not found
+    """
+    if session_id not in processing_jobs:
+        return False
+    
+    stopped = False
+    jobs = processing_jobs[session_id]
+    
+    if camera_role:
+        # Stop specific camera
+        if camera_role in jobs:
+            jobs[camera_role].stop()
+            stopped = True
+    else:
+        # Stop all cameras in session
+        for job in jobs.values():
+            job.stop()
+            stopped = True
+    
+    return stopped
+
+
+def _is_live_stream(video_path: str) -> bool:
+    """Check if the video source is a live stream URL."""
+    if not video_path:
+        return False
+    return video_path.lower().startswith(('rtsp://', 'http://', 'https://', 'rtmp://'))
 
 
 def get_job_status(session_id: str) -> Optional[Dict[str, dict]]:
@@ -226,15 +288,21 @@ def _run_processing_job(job: ProcessingJob) -> None:
         session_data = SessionData(job.session_id, job.location)
         session_data.line_coordinates = job.line_points
         
-        # Process the video
-        _process_video(processor, firebase, job, session_data)
+        # Process based on source type
+        if job.is_live_stream:
+            _process_live_stream(processor, firebase, job, session_data)
+        else:
+            _process_video(processor, firebase, job, session_data)
         
         # Save final results
         firebase.save_session(session_data, camera_role=job.camera_role)
         
-        # Mark complete
-        job.status = ProcessingStatus.COMPLETED.value
-        job.progress = 100
+        # Mark complete (or stopped for live streams)
+        if job.should_stop:
+            job.status = ProcessingStatus.STOPPED.value
+        else:
+            job.status = ProcessingStatus.COMPLETED.value
+            job.progress = 100
         
         _emit_status_update(job)
         _emit_processing_complete(job, session_data.get_statistics())
@@ -334,6 +402,170 @@ def _process_video(
         writer.release()
     
     return output_path
+
+
+def _process_live_stream(
+    processor: VideoProcessor,
+    firebase: FirebaseService,
+    job: ProcessingJob,
+    session_data: SessionData
+) -> None:
+    """
+    Process live stream continuously until stopped.
+    
+    Key differences from file processing:
+    - No total_frames (runs indefinitely)
+    - Handles reconnection on failure
+    - Runs until job.should_stop is True
+    - No video file output (streaming only)
+    
+    Args:
+        processor: VideoProcessor instance for detection
+        firebase: FirebaseService for persistence
+        job: Current processing job
+        session_data: Session data container
+    """
+    import time
+    
+    cap = None
+    retry_count = 0
+    max_retries = Config.LIVE_STREAM_RETRY_ATTEMPTS
+    retry_delay = Config.LIVE_STREAM_RETRY_DELAY
+    
+    # Initialize tracker and annotators
+    fps = 30.0  # Default for live streams
+    tracker = _create_tracker(fps)
+    annotators = _create_annotators()
+    tracking = TrackingState()
+    
+    frame_queue = frame_queues.get(job.camera_role)
+    frame_idx = 0
+    last_event_count = 0
+    last_save_time = datetime.now()
+    
+    print(f"Starting live stream processing for {job.camera_role}: {job.video_path}")
+    
+    try:
+        while not job.should_stop:
+            # Connect/reconnect to stream
+            if cap is None or not cap.isOpened():
+                if retry_count >= max_retries:
+                    raise ConnectionError(f"Lost connection to stream after {max_retries} retries")
+                
+                if retry_count > 0:
+                    print(f"Reconnecting to stream (attempt {retry_count + 1}/{max_retries})...")
+                    _emit_status_update(job)  # Notify client of reconnection attempt
+                    time.sleep(retry_delay)
+                
+                cap = cv2.VideoCapture(job.video_path)
+                cap.set(cv2.CAP_PROP_BUFFERSIZE, Config.LIVE_STREAM_BUFFER_SIZE)
+                
+                if not cap.isOpened():
+                    retry_count += 1
+                    cap = None
+                    continue
+                
+                # Successfully connected
+                actual_fps = cap.get(cv2.CAP_PROP_FPS)
+                if actual_fps > 0:
+                    fps = actual_fps
+                    tracker = _create_tracker(fps)
+                
+                retry_count = 0
+                print(f"Connected to live stream at {fps:.1f} FPS")
+            
+            # Read frame
+            ret, frame = cap.read()
+            if not ret:
+                retry_count += 1
+                cap.release()
+                cap = None
+                continue
+            
+            # Reset retry count on successful read
+            retry_count = 0
+            
+            # Process frame
+            annotated_frame = _process_single_frame(
+                frame=frame,
+                processor=processor,
+                tracker=tracker,
+                annotators=annotators,
+                tracking=tracking,
+                job=job,
+                session_data=session_data,
+                frame_idx=frame_idx,
+                fps=fps
+            )
+            
+            # Stream frame for live display
+            _stream_frame(frame_queue, annotated_frame, frame_idx)
+            
+            # Update job stats
+            job.frames_processed = frame_idx
+            
+            # Periodic updates (every 10 frames)
+            if frame_idx % PROC_CONFIG.PROGRESS_UPDATE_INTERVAL == 0:
+                last_event_count = _handle_live_stream_updates(
+                    job=job,
+                    session_data=session_data,
+                    firebase=firebase,
+                    frame_idx=frame_idx,
+                    last_event_count=last_event_count
+                )
+                
+                # Save to Firebase periodically (every 30 seconds)
+                if (datetime.now() - last_save_time).total_seconds() > 30:
+                    firebase.save_session(session_data, update_events=False, camera_role=job.camera_role)
+                    last_save_time = datetime.now()
+            
+            frame_idx += 1
+            
+    finally:
+        if cap:
+            cap.release()
+        print(f"Live stream processing stopped for {job.camera_role}. Frames processed: {frame_idx}")
+
+
+def _handle_live_stream_updates(
+    job: ProcessingJob,
+    session_data: SessionData,
+    firebase: FirebaseService,
+    frame_idx: int,
+    last_event_count: int
+) -> int:
+    """
+    Handle periodic updates for live stream processing.
+    
+    Returns:
+        Updated event count
+    """
+    # For live streams, emit a "live" status instead of progress percentage
+    socketio.emit(
+        'processing_progress',
+        {
+            'session_id': job.session_id,
+            'progress': -1,  # -1 indicates live stream
+            'camera_role': job.camera_role,
+            'frames_processed': frame_idx,
+            'is_live': True
+        },
+        room=job.session_id,
+        namespace='/'
+    )
+    
+    # Check for new events
+    current_count = len(session_data.events)
+    if current_count > last_event_count:
+        # Emit new events
+        for event in session_data.events[last_event_count:]:
+            _emit_vehicle_event(job, event)
+            firebase.save_event(job.session_id, event)
+        
+        # Emit updated statistics
+        _emit_statistics_update(job, session_data.get_statistics())
+    
+    return current_count
 
 
 def _process_single_frame(

@@ -4,7 +4,7 @@ from datetime import datetime
 import os
 import uuid
 from app.services.firebase_service import FirebaseService
-from app.services.processing_service import start_processing, get_job_status
+from app.services.processing_service import start_processing, get_job_status, stop_processing
 from app.config import Config
 import cv2
 import base64
@@ -144,6 +144,7 @@ def start_processing_route():
     camera_data = cameras.get(camera_role, {})
     video_path = camera_data.get('video_path')
     line_points = camera_data.get('line_points')
+    is_live_stream = camera_data.get('is_live_stream', False)
     
     if not all([session_id, video_path, line_points]):
         return jsonify({'error': f'Missing configuration for {camera_role} camera'}), 400
@@ -169,7 +170,8 @@ def start_processing_route():
             line_points=line_points,
             location=location,
             video_start_time=video_start_time,
-            camera_role=camera_role
+            camera_role=camera_role,
+            is_live_stream=is_live_stream
         )
         
         return jsonify({
@@ -177,11 +179,112 @@ def start_processing_route():
             'session_id': session_id,
             'camera_role': camera_role,
             'status': job.status,
+            'is_live_stream': is_live_stream,
             'message': f'Processing started for {camera_role} camera'
         })
         
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
+
+@setup_bp.route('/configure-stream', methods=['POST'])
+def configure_stream():
+    """Configure a live camera stream (RTSP/HTTP)"""
+    try:
+        data = request.get_json()
+        stream_url = data.get('stream_url')
+        camera_role = data.get('camera_role', 'ENTRY')
+        
+        if not stream_url:
+            return jsonify({'error': 'Stream URL is required'}), 400
+        
+        # Validate URL format
+        if not stream_url.lower().startswith(('rtsp://', 'http://', 'https://', 'rtmp://')):
+            return jsonify({'error': 'Invalid stream URL. Must start with rtsp://, http://, https://, or rtmp://'}), 400
+        
+        print(f"Connecting to stream: {stream_url} for {camera_role} camera")
+        
+        # Attempt to connect and capture first frame
+        cap = cv2.VideoCapture(stream_url)
+        cap.set(cv2.CAP_PROP_BUFFERSIZE, Config.LIVE_STREAM_BUFFER_SIZE)
+        
+        if not cap.isOpened():
+            return jsonify({'error': 'Cannot connect to stream. Please check the URL.'}), 400
+        
+        # Try to read a frame with timeout
+        ret, frame = cap.read()
+        cap.release()
+        
+        if not ret or frame is None:
+            return jsonify({'error': 'Connected but cannot read from stream.'}), 400
+        
+        # Create/get session ID
+        session_id = session.get('current_session')
+        if not session_id:
+            session_id = str(uuid.uuid4())
+            session['current_session'] = session_id
+        
+        # Initialize camera storage if needed
+        if 'cameras' not in session:
+            session['cameras'] = {'ENTRY': {}, 'EXIT': {}}
+        
+        # Store stream configuration
+        session['cameras'][camera_role]['video_path'] = stream_url
+        session['cameras'][camera_role]['is_live_stream'] = True
+        session['cameras'][camera_role]['has_video'] = True
+        session.modified = True
+        
+        # Prepare frame for line drawing
+        frame = cv2.resize(frame, (Config.FRAME_WIDTH, Config.FRAME_HEIGHT))
+        _, buffer = cv2.imencode('.jpg', frame)
+        frame_base64 = base64.b64encode(buffer).decode('utf-8')
+        
+        # Get existing line points if any
+        line_points = session['cameras'][camera_role].get('line_points')
+        
+        print(f"Stream configured successfully for {camera_role} camera")
+        return jsonify({
+            'success': True,
+            'session_id': session_id,
+            'camera_role': camera_role,
+            'frame': frame_base64,
+            'width': Config.FRAME_WIDTH,
+            'height': Config.FRAME_HEIGHT,
+            'line_points': line_points,
+            'is_live_stream': True
+        })
+        
+    except Exception as e:
+        print(f"Stream configuration error: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
+
+
+@setup_bp.route('/stop-processing', methods=['POST'])
+def stop_processing_route():
+    """Stop a running processing job"""
+    try:
+        session_id = session.get('current_session')
+        data = request.get_json()
+        camera_role = data.get('camera_role')  # None = stop all
+        
+        if not session_id:
+            return jsonify({'error': 'No active session'}), 400
+        
+        stopped = stop_processing(session_id, camera_role)
+        
+        if stopped:
+            return jsonify({
+                'success': True,
+                'message': f'Stop signal sent for {camera_role or "all cameras"}'
+            })
+        else:
+            return jsonify({'error': 'No active processing job found'}), 404
+            
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
 
 @setup_bp.route('/processing-status/<session_id>')
 def processing_status(session_id):
