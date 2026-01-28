@@ -45,6 +45,18 @@ def start_processing(session_id: str, video_path: str, line_points: list,
     Start video processing in a background thread.
     Returns immediately after starting the thread.
     """
+    # Clear the frame queue to remove any stale frames from previous session
+    from app.state import frame_queues
+    frame_queue = frame_queues.get(camera_role)
+    if frame_queue:
+        # Drain the queue
+        while not frame_queue.empty():
+            try:
+                frame_queue.get_nowait()
+            except:
+                break
+        print(f"Cleared frame queue for {camera_role} camera")
+    
     job = ProcessingJob(session_id, video_path, line_points, location, video_start_time, camera_role)
     
     # Initialize session dict if it doesn't exist

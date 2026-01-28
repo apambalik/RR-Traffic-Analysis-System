@@ -201,6 +201,29 @@
     </main>
 </div>
 
+<!-- Session Choice Modal -->
+<div id="session-choice-modal" class="modal hidden">
+    <div class="modal-overlay"></div>
+    <div class="modal-content">
+        <div class="modal-header">
+            <h3><i data-feather="help-circle"></i> New Analysis</h3>
+        </div>
+        <div class="modal-body">
+            <p>You have existing analysis data from a previous session. What would you like to do?</p>
+        </div>
+        <div class="modal-actions">
+            <button id="btn-continue-session" class="btn btn-primary">
+                <i data-feather="plus-circle"></i> Continue Session
+                <small>Add to existing totals</small>
+            </button>
+            <button id="btn-new-session" class="btn btn-outline">
+                <i data-feather="refresh-cw"></i> Start Fresh
+                <small>Reset all counts</small>
+            </button>
+        </div>
+    </div>
+</div>
+
 {% endblock %}
 
 {% block scripts %}

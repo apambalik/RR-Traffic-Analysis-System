@@ -12,6 +12,12 @@ class DashboardManager {
             'ENTRY': this.createEmptyStats(),
             'EXIT': this.createEmptyStats()
         };
+        // For "Continue Session" feature - accumulate stats instead of replacing
+        this.continueMode = false;
+        this.baselineStats = {
+            'ENTRY': this.createEmptyStats(),
+            'EXIT': this.createEmptyStats()
+        };
         this.init();
     }
 
@@ -92,8 +98,49 @@ class DashboardManager {
     
     // Update stats for a specific camera and then refresh display
     updateCameraStatistics(role, stats) {
-        this.cameraStats[role] = stats;
+        if (this.continueMode) {
+            // Accumulate: add new stats to baseline
+            const baseline = this.baselineStats[role];
+            this.cameraStats[role] = {
+                vehicles_in: baseline.vehicles_in + (stats.vehicles_in || 0),
+                vehicles_out: baseline.vehicles_out + (stats.vehicles_out || 0),
+                net_vehicles: baseline.net_vehicles + (stats.net_vehicles || 0),
+                people_on_site_min: baseline.people_on_site_min + (stats.people_on_site_min || 0),
+                people_on_site_max: baseline.people_on_site_max + (stats.people_on_site_max || 0),
+                vehicle_distribution: this.mergeDistributions(baseline.vehicle_distribution, stats.vehicle_distribution || {})
+            };
+        } else {
+            this.cameraStats[role] = stats;
+        }
         this.refreshDashboard();
+    }
+    
+    // Merge two vehicle distribution objects by adding counts
+    mergeDistributions(base, added) {
+        const result = { ...base };
+        for (const type in added) {
+            result[type] = (result[type] || 0) + added[type];
+        }
+        return result;
+    }
+    
+    // Enable continue mode - saves current stats as baseline
+    setContinueMode(enabled) {
+        this.continueMode = enabled;
+        if (enabled) {
+            // Save current stats as baseline to accumulate from
+            this.baselineStats = {
+                'ENTRY': JSON.parse(JSON.stringify(this.cameraStats.ENTRY)),
+                'EXIT': JSON.parse(JSON.stringify(this.cameraStats.EXIT))
+            };
+            console.log('Continue mode enabled. Baseline stats saved:', this.baselineStats);
+        } else {
+            // Reset baseline
+            this.baselineStats = {
+                'ENTRY': this.createEmptyStats(),
+                'EXIT': this.createEmptyStats()
+            };
+        }
     }
 
     // Calculate totals and update UI
@@ -288,6 +335,7 @@ class WorkbenchManager {
     constructor() {
         // State
         this.currentCameraRole = 'ENTRY';
+        this.sessionCompleted = false;  // Track if previous analysis finished (for hybrid session)
         
         // Track LineDrawer instances for BOTH cameras
         this.lineDrawers = {
@@ -507,6 +555,13 @@ class WorkbenchManager {
         const exitDone = this.cameraConfigs.EXIT.processingStatus === 'completed';
         
         if (entryDone && exitDone) {
+            this.sessionCompleted = true;  // Mark session as completed for hybrid approach
+            
+            // Disable continue mode now that processing is done
+            if (window.dashboardManager) {
+                window.dashboardManager.setContinueMode(false);
+            }
+            
             this.els.startBtn.innerHTML = `<i data-feather="check"></i> Analysis Complete`;
             this.els.startBtn.disabled = true;
             this.els.processingStatus.classList.add('hidden');
@@ -517,6 +572,25 @@ class WorkbenchManager {
     async handleVideoUpload(e) {
         if (!e.target.files || !e.target.files.length) return;
         const file = e.target.files[0];
+        
+        // Check if previous session completed - show choice modal
+        if (this.sessionCompleted) {
+            const choice = await this.showSessionChoiceModal();
+            if (choice === 'new') {
+                this.resetSession();
+                // Disable continue mode (stats will be replaced)
+                if (window.dashboardManager) {
+                    window.dashboardManager.setContinueMode(false);
+                }
+            } else {
+                // Enable continue mode - accumulate new stats on top of existing
+                if (window.dashboardManager) {
+                    window.dashboardManager.setContinueMode(true);
+                }
+            }
+            this.sessionCompleted = false;
+        }
+        
         this.els.fileName.textContent = file.name;
         
         const formData = new FormData();
@@ -545,6 +619,123 @@ class WorkbenchManager {
         } catch (error) {
             alert('Error uploading video: ' + error.message);
         }
+    }
+    
+    /**
+     * Show modal asking user whether to continue session or start fresh
+     * @returns {Promise<string>} 'continue' or 'new'
+     */
+    showSessionChoiceModal() {
+        return new Promise((resolve) => {
+            const modal = document.getElementById('session-choice-modal');
+            const continueBtn = document.getElementById('btn-continue-session');
+            const newBtn = document.getElementById('btn-new-session');
+            
+            // Show modal
+            modal.classList.remove('hidden');
+            feather.replace();
+            
+            // Handle button clicks
+            const handleContinue = () => {
+                modal.classList.add('hidden');
+                cleanup();
+                resolve('continue');
+            };
+            
+            const handleNew = () => {
+                modal.classList.add('hidden');
+                cleanup();
+                resolve('new');
+            };
+            
+            const cleanup = () => {
+                continueBtn.removeEventListener('click', handleContinue);
+                newBtn.removeEventListener('click', handleNew);
+            };
+            
+            continueBtn.addEventListener('click', handleContinue);
+            newBtn.addEventListener('click', handleNew);
+        });
+    }
+    
+    /**
+     * Reset all session data for a fresh start
+     */
+    resetSession() {
+        console.log('Resetting session...');
+        
+        // Reset dashboard manager stats
+        if (window.dashboardManager) {
+            window.dashboardManager.cameraStats = {
+                'ENTRY': window.dashboardManager.createEmptyStats(),
+                'EXIT': window.dashboardManager.createEmptyStats()
+            };
+            window.dashboardManager.eventCount = 0;
+            window.dashboardManager.refreshDashboard();
+            
+            // Reset distribution chart
+            if (window.dashboardManager.charts.distribution) {
+                window.dashboardManager.charts.distribution.data.datasets[0].data = [0, 0, 0, 0, 0, 0, 0];
+                window.dashboardManager.charts.distribution.update('none');
+            }
+        }
+        
+        // Clear event log
+        const tbody = document.getElementById('event-log-body');
+        if (tbody) {
+            tbody.innerHTML = '<tr class="empty-row"><td colspan="4" class="text-center text-secondary">No events yet</td></tr>';
+        }
+        
+        // Reset event count badge
+        const eventCount = document.getElementById('event-count');
+        if (eventCount) {
+            eventCount.textContent = '0 events';
+        }
+        
+        // Reset camera configs processing status
+        this.cameraConfigs.ENTRY.processingStatus = 'pending';
+        this.cameraConfigs.ENTRY.progress = 0;
+        this.cameraConfigs.ENTRY.hasVideo = false;
+        this.cameraConfigs.ENTRY.hasLine = false;
+        this.cameraConfigs.ENTRY.videoName = '';
+        
+        this.cameraConfigs.EXIT.processingStatus = 'pending';
+        this.cameraConfigs.EXIT.progress = 0;
+        this.cameraConfigs.EXIT.hasVideo = false;
+        this.cameraConfigs.EXIT.hasLine = false;
+        this.cameraConfigs.EXIT.videoName = '';
+        
+        // Reset line drawers
+        this.lineDrawers.ENTRY = null;
+        this.lineDrawers.EXIT = null;
+        
+        // Reset camera UI elements
+        ['ENTRY', 'EXIT'].forEach(role => {
+            const camEls = this.cameraEls[role];
+            if (camEls.canvas) camEls.canvas.style.display = 'none';
+            if (camEls.placeholder) camEls.placeholder.style.display = 'block';
+            if (camEls.liveFeed) {
+                camEls.liveFeed.style.display = 'none';
+                camEls.liveFeed.src = '';
+            }
+            if (camEls.progressBar) camEls.progressBar.style.width = '0%';
+            if (camEls.progressText) camEls.progressText.textContent = '0%';
+            this.updateCameraStatusText(role);
+        });
+        
+        // Reset global UI elements
+        this.els.startBtn.innerHTML = `<i data-feather="play"></i> Start Analysis`;
+        this.els.startBtn.disabled = true;
+        this.els.processingStatus.classList.add('hidden');
+        this.els.liveBadge.classList.add('hidden');
+        this.els.modeLabel.textContent = 'Setup';
+        this.els.fileName.textContent = 'No file selected';
+        this.els.clearLineBtn.disabled = true;
+        
+        this.updateSidebarStatus();
+        feather.replace();
+        
+        console.log('Session reset complete');
     }
 
     async loadFirstFrame(role) {
