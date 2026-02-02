@@ -173,6 +173,20 @@ def start_processing(
     Returns:
         ProcessingJob instance for tracking progress
     """
+    # Check for existing job and ensure it is fully stopped
+    if session_id in processing_jobs and camera_role in processing_jobs[session_id]:
+        existing_job = processing_jobs[session_id][camera_role]
+        
+        # Signal stop if it's still running
+        if existing_job.status == ProcessingStatus.PROCESSING.value:
+            print(f"Stopping existing thread for {camera_role} before restart...")
+            existing_job.stop()
+            
+            # Wait for the thread to actually finish (prevent queue conflict)
+            if existing_job.thread and existing_job.thread.is_alive():
+                existing_job.thread.join(timeout=5.0)
+                print(f"Existing thread for {camera_role} terminated.")
+
     # Clear stale frames from queue
     _clear_frame_queue(camera_role)
     

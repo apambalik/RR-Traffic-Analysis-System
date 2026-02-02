@@ -561,7 +561,9 @@ class WorkbenchManager {
             fileSourceConfig: getElement('file-source-config'),
             streamSourceConfig: getElement('stream-source-config'),
             streamUrlInput: getElement('stream-url-input'),
-            streamStatusDisplay: getElement('stream-status-display')
+            streamStatusDisplay: getElement('stream-status-display'),
+            btnConnectStream: getElement('btn-connect-stream'),
+            btnDisconnectStream: getElement('btn-disconnect-stream')
         };
     }
 
@@ -659,7 +661,11 @@ class WorkbenchManager {
 
                 streamStatusDisplay.textContent = 'Connected';
                 streamStatusDisplay.style.color = 'var(--success-color)';
-
+                
+                this.globalElements.btnConnectStream.classList.add('hidden');
+                this.globalElements.btnDisconnectStream.classList.remove('hidden');
+                this.globalElements.streamUrlInput.disabled = true; // Lock input
+                
                 // Load the captured frame for line drawing
                 await this.loadStreamFrame(this.currentCameraRole, data.frame, data.line_points);
                 this.updateStartButtonState();
@@ -672,6 +678,48 @@ class WorkbenchManager {
             streamStatusDisplay.style.color = 'var(--danger-color)';
             console.error('Stream connection error:', error);
         }
+    }
+    /**
+     * Disconnects the live stream configuration (UI only, as setup stream isn't persistent)
+     */
+    async disconnectStream() {
+        const role = this.currentCameraRole;
+        const config = this.cameraConfigs[role];
+
+        // Reset config
+        config.hasVideo = false;
+        config.hasLine = false; // Optional: Force redraw line? Usually safer.
+        config.isLiveStream = false;
+        config.videoName = '';
+
+        // Reset UI Elements
+        this.globalElements.btnConnectStream.classList.remove('hidden');
+        this.globalElements.btnDisconnectStream.classList.add('hidden');
+        this.globalElements.streamUrlInput.disabled = false;
+        this.globalElements.streamUrlInput.value = '';
+        this.globalElements.streamStatusDisplay.textContent = 'Not connected';
+        this.globalElements.streamStatusDisplay.style.color = 'var(--text-secondary)';
+        
+        this.globalElements.fileName.textContent = 'No file selected';
+
+        // Reset Canvas/Video Area
+        if (this.lineDrawers[role]) {
+            this.lineDrawers[role].reset(); // clear line
+        }
+        
+        const camEls = this.cameraElements[role];
+        if (camEls.canvas) camEls.canvas.style.display = 'none';
+        if (camEls.liveFeed) {
+            camEls.liveFeed.src = ''; // Stop browser loading
+            camEls.liveFeed.classList.add('hidden');
+        }
+        if (camEls.placeholder) camEls.placeholder.style.display = '';
+
+        this.updateCameraStatusText(role);
+        this.updateStartButtonState();
+        this.updateSidebarStatus();
+        
+        console.log(`Disconnected stream for ${role}`);
     }
 
     /**
@@ -1143,14 +1191,15 @@ class WorkbenchManager {
         console.log(`Setting analysis mode for ${cameraRole} camera`);
 
         const camEls = this.cameraElements[cameraRole];
+        const timestamp = new Date().getTime();
 
         // Hide canvas, show live feed
         if (camEls.canvas) camEls.canvas.style.display = 'none';
         if (camEls.liveFeed) {
             camEls.liveFeed.style.display = 'block';
             camEls.liveFeed.classList.remove('hidden');
-            camEls.liveFeed.src = `/video-feed/${cameraRole}`;
-            console.log(`Started live stream: /video-feed/${cameraRole}`);
+            camEls.liveFeed.src = `/video-feed/${cameraRole}?t=${timestamp}`;
+            console.log(`Started live stream: ${camEls.liveFeed.src}`);
         }
 
         this.globalElements.liveBadge.classList.remove('hidden');
@@ -1158,7 +1207,7 @@ class WorkbenchManager {
     }
 
     /**
-     * Stop all running analysis (for live streams)
+     * Stop all running analysis
      */
     async stopAnalysis() {
         const { stopBtn, startBtn, processingStatus } = this.globalElements;

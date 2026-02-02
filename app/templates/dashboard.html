@@ -63,9 +63,14 @@
             <div class="config-group hidden" id="stream-source-config">
                 <label class="form-label">Stream URL</label>
                 <input type="text" id="stream-url-input" class="form-input" placeholder="rtsp://192.168.1.100:554/stream">
-                <button class="btn btn-outline btn-full mt-1" id="btn-connect-stream" onclick="window.workbenchManager?.connectStream()">
-                    <i data-feather="link"></i> Connect to Stream
-                </button>
+                <div class="d-flex gap-2 mt-1">
+                    <button class="btn btn-outline btn-full" id="btn-connect-stream" onclick="window.workbenchManager?.connectStream()">
+                        <i data-feather="link"></i> Connect
+                    </button>
+                    <button class="btn btn-outline btn-full hidden" id="btn-disconnect-stream" onclick="window.workbenchManager?.disconnectStream()">
+                        <i data-feather="x-circle"></i> Disconnect
+                    </button>
+                </div>
                 <div id="stream-status-display" class="file-name text-truncate mt-1">Not connected</div>
             </div>
 
