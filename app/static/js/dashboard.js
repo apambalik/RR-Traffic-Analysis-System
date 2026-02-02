@@ -1037,7 +1037,11 @@ class WorkbenchManager {
     // -------------------------------------------------------------------------
 
     updateStartButtonState() {
-        const allReady = Object.values(CAMERA_ROLES).every(role => {
+        // const allReady = Object.values(CAMERA_ROLES).every(role => {
+        //     const config = this.cameraConfigs[role];
+        //     return config.hasVideo && config.hasLine;
+        // });
+        const anyReady = Object.values(CAMERA_ROLES).some(role => {
             const config = this.cameraConfigs[role];
             return config.hasVideo && config.hasLine;
         });
@@ -1048,9 +1052,16 @@ class WorkbenchManager {
 
         const { startBtn } = this.globalElements;
 
-        if (anyProcessing) {
-            startBtn.disabled = true;
-        } else if (allReady) {
+        // if (anyProcessing) {
+        //     startBtn.disabled = true;
+        // } else if (allReady) {
+        //     startBtn.disabled = false;
+        //     startBtn.innerHTML = `<i data-feather="play"></i> Start Analysis`;
+        //     feather.replace();
+        // } else {
+        //     startBtn.disabled = true;
+        // }
+        if (anyProcessing || anyReady) {
             startBtn.disabled = false;
             startBtn.innerHTML = `<i data-feather="play"></i> Start Analysis`;
             feather.replace();
@@ -1060,15 +1071,16 @@ class WorkbenchManager {
     }
 
     async startAnalysis() {
-        // Validate both cameras
-        for (const role of Object.values(CAMERA_ROLES)) {
+        // Identify which cameras are actually ready
+        const readyCameras = Object.values(CAMERA_ROLES).filter(role => {
             const config = this.cameraConfigs[role];
-            if (!config.hasVideo || !config.hasLine) {
-                alert(`Please configure the ${role} camera first (upload video and draw line).`);
-                return;
-            }
+            return config.hasVideo && config.hasLine;
+        });
+        // Validation checks if list is empty, rather than checking specific roles
+        if (readyCameras.length === 0) {
+            alert(`Please configure at least one camera (upload video and draw line).`);
+            return;
         }
-
         // Show processing UI
         const { processingStatus, startBtn, locationInput } = this.globalElements;
         processingStatus.classList.remove('hidden');
@@ -1081,7 +1093,7 @@ class WorkbenchManager {
 
         try {
             // Start processing for each camera
-            for (const role of Object.values(CAMERA_ROLES)) {
+            for (const role of readyCameras) {
                 const response = await fetch('/setup/start-processing', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },

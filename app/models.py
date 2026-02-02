@@ -47,13 +47,17 @@ class SessionData:
         
         people_min_out = sum(e.seats_min for e in self.events if e.direction == 'OUT')
         people_max_out = sum(e.seats_max for e in self.events if e.direction == 'OUT')
-        
+
+        # on_site_min = max(0, people_min - people_min_out)
+        # on_site_max = max(0, people_max - people_max_out)
         return {
             'vehicles_in': vehicles_in,
             'vehicles_out': vehicles_out,
             'net_vehicles': vehicles_in - vehicles_out,
             'people_on_site_min': people_min - people_min_out,
             'people_on_site_max': people_max - people_max_out,
+            # 'people_on_site_min': on_site_min,
+            # 'people_on_site_max': on_site_max,
             'vehicle_distribution': self._get_distribution()
         }
     
