@@ -555,7 +555,6 @@ class WorkbenchManager {
             locationInput: getElement('location-input'),
             modeLabel: getElement('mode-label'),
             liveBadge: getElement('live-badge'),
-            // Source type elements
             sourceFileBtn: getElement('source-file-btn'),
             sourceStreamBtn: getElement('source-stream-btn'),
             fileSourceConfig: getElement('file-source-config'),
@@ -563,7 +562,8 @@ class WorkbenchManager {
             streamUrlInput: getElement('stream-url-input'),
             streamStatusDisplay: getElement('stream-status-display'),
             btnConnectStream: getElement('btn-connect-stream'),
-            btnDisconnectStream: getElement('btn-disconnect-stream')
+            btnDisconnectStream: getElement('btn-disconnect-stream'),
+            continueBtn: getElement('btn-continue-analysis')
         };
     }
 
@@ -578,7 +578,7 @@ class WorkbenchManager {
     // -------------------------------------------------------------------------
 
     setupEventListeners() {
-        const { videoUpload, clearLineBtn, startBtn, stopBtn } = this.globalElements;
+        const { videoUpload, clearLineBtn, startBtn, stopBtn, continueBtn} = this.globalElements;
 
         if (videoUpload) {
             videoUpload.addEventListener('change', (e) => this.handleVideoUpload(e));
@@ -587,7 +587,10 @@ class WorkbenchManager {
             clearLineBtn.addEventListener('click', () => this.resetLine());
         }
         if (startBtn) {
-            startBtn.addEventListener('click', () => this.startAnalysis());
+            startBtn.addEventListener('click', () => this.startAnalysis(false));
+        }
+        if (continueBtn) {
+            continueBtn.addEventListener('click', () => this.startAnalysis(true));
         }
         if (stopBtn) {
             stopBtn.addEventListener('click', () => this.stopAnalysis());
@@ -699,6 +702,8 @@ class WorkbenchManager {
         this.globalElements.streamUrlInput.value = '';
         this.globalElements.streamStatusDisplay.textContent = 'Not connected';
         this.globalElements.streamStatusDisplay.style.color = 'var(--text-secondary)';
+        this.globalElements.continueBtn?.classList.add('hidden');
+        this.globalElements.startBtn.innerHTML = `<i data-feather="play"></i> Start Analysis`;
         
         this.globalElements.fileName.textContent = 'No file selected';
 
@@ -943,14 +948,18 @@ class WorkbenchManager {
             this.hasLiveStreams = false;
 
             // Disable continue mode
-            if (window.dashboardManager) {
-                window.dashboardManager.setContinueMode(false);
-            }
+            // if (window.dashboardManager) {
+            //     window.dashboardManager.setContinueMode(false);
+            // }
 
             this.globalElements.startBtn.innerHTML = `<i data-feather="check"></i> Analysis Complete`;
-            this.globalElements.startBtn.disabled = true;
+            this.globalElements.startBtn.disabled = false;
             this.globalElements.stopBtn?.classList.add('hidden');
             this.globalElements.processingStatus.classList.add('hidden');
+            const isStreamContext = Object.values(CAMERA_ROLES).some(role => this.cameraConfigs[role].isLiveStream);
+            if (isStreamContext) {
+                this.globalElements.continueBtn?.classList.remove('hidden');
+            }
             feather.replace();
         }
     }
@@ -1118,7 +1127,18 @@ class WorkbenchManager {
         }
     }
 
-    async startAnalysis() {
+    async startAnalysis(isContinue = false) {
+        // Handle Session Mode
+        if (isContinue) {
+            console.log("Starting analysis in CONTINUE mode");
+            window.dashboardManager?.setContinueMode(true);
+        } else {
+            console.log("Starting analysis in NEW mode");
+            window.dashboardManager?.setContinueMode(false);
+            window.dashboardManager?.resetStats(); // Clear previous data
+        }
+        // Hide Continue button once started
+        this.globalElements.continueBtn?.classList.add('hidden');
         // Identify which cameras are actually ready
         const readyCameras = Object.values(CAMERA_ROLES).filter(role => {
             const config = this.cameraConfigs[role];
@@ -1210,7 +1230,7 @@ class WorkbenchManager {
      * Stop all running analysis
      */
     async stopAnalysis() {
-        const { stopBtn, startBtn, processingStatus } = this.globalElements;
+        const { stopBtn, startBtn, processingStatus, continueBtn } = this.globalElements;
 
         stopBtn.disabled = true;
         stopBtn.innerHTML = `<i data-feather="loader" class="spin"></i> Stopping...`;
@@ -1227,6 +1247,11 @@ class WorkbenchManager {
             if (data.success) {
                 console.log('Stop signal sent successfully');
                 
+                // Check if any camera was configured as a live stream
+                const wasLiveStream = Object.values(CAMERA_ROLES).some(
+                    role => this.cameraConfigs[role].isLiveStream
+                );
+
                 // Update UI - the actual completion will come via socket events
                 Object.values(CAMERA_ROLES).forEach(role => {
                     const config = this.cameraConfigs[role];
@@ -1240,9 +1265,13 @@ class WorkbenchManager {
                 this.hasLiveStreams = false;
                 
                 stopBtn.classList.add('hidden');
-                startBtn.innerHTML = `<i data-feather="check"></i> Analysis Stopped`;
-                startBtn.disabled = true;
+                startBtn.innerHTML = `<i data-feather="rotate-ccw"></i>Start New Session`;
+                startBtn.disabled = false;
+                if (wasLiveStream && continueBtn) {
+                    continueBtn.classList.remove('hidden');
+                }
                 processingStatus.classList.add('hidden');
+                feather.replace();
             }
         } catch (error) {
             console.error('Failed to stop analysis:', error);
