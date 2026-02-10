@@ -1,5 +1,6 @@
 import os
 from dotenv import load_dotenv
+import json
 
 load_dotenv()
 
@@ -10,9 +11,16 @@ class Config:
     MAX_CONTENT_LENGTH = int(os.environ.get('MAX_CONTENT_LENGTH', 524288000))
     
     # Firebase
-    FIREBASE_CREDENTIALS = os.environ.get('FIREBASE_CREDENTIALS_PATH')
     FIREBASE_DATABASE_URL = os.environ.get('FIREBASE_DATABASE_URL')
+    _firebase_json_content = os.environ.get('FIREBASE_CREDENTIALS_JSON')
     
+    if _firebase_json_content:
+        # If running on Hugging Face, parse the JSON string directly
+        FIREBASE_CREDENTIALS = json.loads(_firebase_json_content)
+    else:
+        # If running locally, look for the file path
+        FIREBASE_CREDENTIALS = os.environ.get('FIREBASE_CREDENTIALS_PATH')
+
     # Model
     MODEL_PATH = os.environ.get('MODEL_PATH', 'model_data/checkpoint_best_total.pth')
     CONFIDENCE_THRESHOLD = 0.5
