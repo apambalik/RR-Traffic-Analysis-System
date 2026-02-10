@@ -14,5 +14,6 @@ roboflow==1.1.9
 rfdetr
 eventlet==0.35.1
 transformers==4.42.0
+peft==0.10.0
 # For production
 gunicorn==21.2.0
