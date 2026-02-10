@@ -13,6 +13,6 @@ torchvision==0.24.0+cu126
 roboflow==1.1.9
 rfdetr
 eventlet==0.35.1
-
+transformers==4.42.0
 # For production
 gunicorn==21.2.0
