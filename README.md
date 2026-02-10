@@ -1,3 +1,12 @@
+---
+title: RR Traffic Analysis System
+emoji: 🚗
+colorFrom: blue
+colorTo: green
+sdk: docker
+app_port: 7860
+---
+
 # Real-time Vehicle Detection and Traffic Analysis System for Malaysia Rest & Recreation (R&R) Stops
 ## Description of the system:
 - using RF-Detr Base model (roboflow's) for detecting and classifying vehicles entering and exiting the R&R stops from surveillance footage (video file or live camera feed) into sedan, SUV, pickup, van, motorcycle, bus or truck.
