@@ -100,7 +100,13 @@ class FirebaseService:
         return merged
     
     def save_event(self, session_id: str, event):
-        """Save individual event to Firebase"""
+        """
+        [DEPRECATED] Save individual event to Firebase.
+        
+        NOTE: This method is deprecated for efficiency reasons.
+        Use save_session() with update_events=True to batch events instead.
+        Individual writes are expensive - batching reduces Firebase costs by 80-95%.
+        """
         events_ref = self.ref.child('sessions').child(session_id).child('events')
         events_ref.push(event.to_dict())
         

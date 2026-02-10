@@ -35,3 +35,8 @@ class Config:
     LIVE_STREAM_RETRY_DELAY = 2  # seconds between reconnection attempts
     LIVE_STREAM_CONNECTION_TIMEOUT = 10  # seconds to wait for initial connection
     LIVE_STREAM_BUFFER_SIZE = 1  # minimize latency by keeping buffer small
+    
+    # Firebase Update Intervals (seconds) - for efficiency
+    FIREBASE_EVENT_BATCH_INTERVAL = 30  # Batch events every 30 seconds
+    FIREBASE_STATISTICS_INTERVAL = 45  # Update statistics every 45 seconds
+    FIREBASE_LIVE_STREAM_INTERVAL = 30  # Live stream data save interval

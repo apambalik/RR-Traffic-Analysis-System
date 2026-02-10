@@ -118,6 +118,9 @@ class ProcessingJob:
     is_live_stream: bool = False
     should_stop: bool = False
     frames_processed: int = 0
+    # Firebase batching state
+    last_firebase_save_time: datetime = field(default_factory=datetime.now)
+    last_event_count_saved: int = 0
     
     def to_dict(self) -> dict:
         """Convert job to dictionary for serialization."""
@@ -308,8 +311,9 @@ def _run_processing_job(job: ProcessingJob) -> None:
         else:
             _process_video(processor, firebase, job, session_data)
         
-        # Save final results
-        firebase.save_session(session_data, camera_role=job.camera_role)
+        # Save final results with all events
+        firebase.save_session(session_data, update_events=True, camera_role=job.camera_role)
+        print(f"[{job.camera_role}] Final save: {len(session_data.events)} total events saved to Firebase")
         
         # Mark complete (or stopped for live streams)
         if job.should_stop:
@@ -455,7 +459,6 @@ def _process_live_stream(
     frame_queue = frame_queues.get(job.camera_role)
     frame_idx = 0
     last_event_count = 0
-    last_save_time = datetime.now()
     
     print(f"Starting live stream processing for {job.camera_role}: {job.video_path}")
     
@@ -527,11 +530,6 @@ def _process_live_stream(
                     frame_idx=frame_idx,
                     last_event_count=last_event_count
                 )
-                
-                # Save to Firebase periodically (every 30 seconds)
-                if (datetime.now() - last_save_time).total_seconds() > 30:
-                    firebase.save_session(session_data, update_events=False, camera_role=job.camera_role)
-                    last_save_time = datetime.now()
             
             frame_idx += 1
             
@@ -549,7 +547,7 @@ def _handle_live_stream_updates(
     last_event_count: int
 ) -> int:
     """
-    Handle periodic updates for live stream processing.
+    Handle periodic updates for live stream processing with batched Firebase writes.
     
     Returns:
         Updated event count
@@ -568,16 +566,39 @@ def _handle_live_stream_updates(
         namespace='/'
     )
     
-    # Check for new events
+    # Check for new events and emit them immediately via WebSocket
     current_count = len(session_data.events)
     if current_count > last_event_count:
-        # Emit new events
+        # Emit new events to WebSocket (real-time UI updates)
         for event in session_data.events[last_event_count:]:
             _emit_vehicle_event(job, event)
-            firebase.save_event(job.session_id, event)
         
-        # Emit updated statistics
+        # Emit updated statistics to WebSocket
         _emit_statistics_update(job, session_data.get_statistics())
+    
+    # Batched Firebase persistence (time-based)
+    time_since_last_save = (datetime.now() - job.last_firebase_save_time).total_seconds()
+    
+    # Save to Firebase if interval elapsed
+    if time_since_last_save >= Config.FIREBASE_LIVE_STREAM_INTERVAL:
+        if current_count > job.last_event_count_saved:
+            # Save session with batched events and updated statistics
+            firebase.save_session(
+                session_data,
+                update_events=True,  # Include all events in batch
+                camera_role=job.camera_role
+            )
+            job.last_event_count_saved = current_count
+            print(f"[{job.camera_role}] Live stream: Batched {current_count - job.last_event_count_saved} events to Firebase")
+        else:
+            # Update statistics only (no new events)
+            firebase.save_session(
+                session_data,
+                update_events=False,
+                camera_role=job.camera_role
+            )
+        
+        job.last_firebase_save_time = datetime.now()
     
     return current_count
 
@@ -838,7 +859,7 @@ def _handle_periodic_updates(
     last_event_count: int
 ) -> int:
     """
-    Handle periodic progress and event updates.
+    Handle periodic progress and event updates with batched Firebase writes.
     
     Returns:
         Updated event count
@@ -849,19 +870,39 @@ def _handle_periodic_updates(
         job.progress = progress
         _emit_progress_update(job)
     
-    # Check for new events
+    # Check for new events and emit them immediately via WebSocket
     current_count = len(session_data.events)
     if current_count > last_event_count:
-        # Emit new events
+        # Emit new events to WebSocket (real-time UI updates)
         for event in session_data.events[last_event_count:]:
             _emit_vehicle_event(job, event)
-            firebase.save_event(job.session_id, event)
         
-        # Emit updated statistics
+        # Emit updated statistics to WebSocket
         _emit_statistics_update(job, session_data.get_statistics())
-        
-        # Persist to Firebase
-        firebase.save_session(session_data, update_events=False, camera_role=job.camera_role)
+    
+    # Batched Firebase persistence (time-based)
+    time_since_last_save = (datetime.now() - job.last_firebase_save_time).total_seconds()
+    
+    # Save to Firebase if interval elapsed AND there are new events or statistics
+    if time_since_last_save >= Config.FIREBASE_EVENT_BATCH_INTERVAL:
+        if current_count > job.last_event_count_saved:
+            # Save session with batched events and updated statistics
+            firebase.save_session(
+                session_data, 
+                update_events=True,  # Include all events in batch
+                camera_role=job.camera_role
+            )
+            job.last_firebase_save_time = datetime.now()
+            job.last_event_count_saved = current_count
+            print(f"[{job.camera_role}] Batched {current_count - job.last_event_count_saved} events to Firebase")
+        elif time_since_last_save >= Config.FIREBASE_STATISTICS_INTERVAL:
+            # Update statistics only (no new events)
+            firebase.save_session(
+                session_data,
+                update_events=False,
+                camera_role=job.camera_role
+            )
+            job.last_firebase_save_time = datetime.now()
     
     return current_count
 
