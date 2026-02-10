@@ -87,6 +87,13 @@ def get_first_frame():
     
     if not video_path:
         return jsonify({'error': 'No video uploaded for this camera'}), 400
+
+    print(f"DEBUG: Attempting to read file at: {video_path}")
+    if os.path.exists(video_path):
+        print(f"DEBUG: File exists. Size: {os.path.getsize(video_path)} bytes")
+    else:
+        print(f"DEBUG: ERROR - File does not exist at path!")
+        return jsonify({'error': 'Video file not found on server'}), 404
     
     cap = cv2.VideoCapture(video_path)
     ret, frame = cap.read()
