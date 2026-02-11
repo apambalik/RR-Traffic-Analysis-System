@@ -15,7 +15,8 @@ def create_app(config_class=Config):
     os.makedirs(app.config['OUTPUT_FOLDER'], exist_ok=True)
     
     # Initialize SocketIO with the app
-    socketio.init_app(app, cors_allowed_origins="*", async_mode='threading')
+    # socketio.init_app(app, cors_allowed_origins="*", async_mode='threading')
+    socketio.init_app(app, cors_allowed_origins="*")
     
     # Register blueprints
     from app.routes import dashboard_bp, setup_bp
