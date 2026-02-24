@@ -175,11 +175,13 @@ class DashboardManager {
         this.setupCharts();
         this.setupSocketIO();
         this.setupTimeFilter();
+        this.setupDateRangeFilter();
 
         if (this.sessionId) {
             this.fetchInitialData();
         }
 
+        this.applyDateDefaults('daily');
         this.fetchHistoricalStats('daily');
     }
 
@@ -355,7 +357,13 @@ class DashboardManager {
 
     async fetchHistoricalStats(period = 'daily') {
         try {
-            const response = await fetch(`/api/historical-stats?period=${period}`);
+            const start = getElement('flow-date-start')?.value || '';
+            const end = getElement('flow-date-end')?.value || '';
+            const params = new URLSearchParams({ period });
+            if (start) params.set('start', start);
+            if (end) params.set('end', end);
+
+            const response = await fetch(`/api/historical-stats?${params}`);
             if (!response.ok) return;
 
             const data = await response.json();
@@ -561,10 +569,48 @@ class DashboardManager {
                 btn.classList.add('active');
                 const period = btn.dataset.period;
                 if (period) {
+                    this.applyDateDefaults(period);
                     this.fetchHistoricalStats(period);
                 }
             });
         });
+    }
+
+    setupDateRangeFilter() {
+        const startInput = getElement('flow-date-start');
+        const endInput = getElement('flow-date-end');
+        const refetch = () => {
+            const activeBtn = document.querySelector('.time-btn.active');
+            const period = activeBtn?.dataset.period || 'daily';
+            this.fetchHistoricalStats(period);
+        };
+        if (startInput) startInput.addEventListener('change', refetch);
+        if (endInput) endInput.addEventListener('change', refetch);
+    }
+
+    /**
+     * Sets smart date defaults based on the selected period
+     */
+    applyDateDefaults(period) {
+        const startInput = getElement('flow-date-start');
+        const endInput = getElement('flow-date-end');
+        if (!startInput || !endInput) return;
+
+        const today = new Date();
+        const toISO = (d) => d.toISOString().split('T')[0];
+        endInput.value = toISO(today);
+
+        const offsets = {
+            hourly:  0,
+            daily:   30,
+            weekly:  90,
+            monthly: 365,
+            yearly:  1825
+        };
+        const daysBack = offsets[period] ?? 30;
+        const start = new Date(today);
+        start.setDate(start.getDate() - daysBack);
+        startInput.value = toISO(start);
     }
 
     showNotification(title, message, type = 'info') {

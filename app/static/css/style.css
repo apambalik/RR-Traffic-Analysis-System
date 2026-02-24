@@ -771,6 +771,29 @@ body {
     color: white;
 }
 
+/* Date Range Filter */
+.date-range-filter {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.5rem 1rem;
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+}
+
+.date-range-filter label {
+    font-weight: 500;
+}
+
+.date-range-filter input[type="date"] {
+    padding: 0.25rem 0.5rem;
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    font-size: 0.85rem;
+    color: var(--text-primary);
+    background: var(--background-color, #f8f9fa);
+}
+
 /* Chart Legend */
 .chart-legend {
     display: flex;

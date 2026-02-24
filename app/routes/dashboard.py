@@ -94,6 +94,21 @@ def get_vehicle_distribution():
 def get_historical_stats():
     """Aggregate people flow stats across all sessions by time period."""
     period = request.args.get('period', 'daily')
+    start_filter = request.args.get('start')
+    end_filter = request.args.get('end')
+
+    start_date = None
+    end_date = None
+    if start_filter:
+        try:
+            start_date = datetime.strptime(start_filter, '%Y-%m-%d').date()
+        except ValueError:
+            pass
+    if end_filter:
+        try:
+            end_date = datetime.strptime(end_filter, '%Y-%m-%d').date()
+        except ValueError:
+            pass
 
     all_sessions = firebase_service.get_recent_sessions(limit=1000)
     if not all_sessions:
@@ -113,6 +128,12 @@ def get_historical_stats():
         try:
             dt = datetime.fromisoformat(start_time_str)
         except ValueError:
+            continue
+
+        session_date = dt.date()
+        if start_date and session_date < start_date:
+            continue
+        if end_date and session_date > end_date:
             continue
 
         if period == 'hourly':
