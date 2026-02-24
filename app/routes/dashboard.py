@@ -1,10 +1,12 @@
-from flask import Blueprint, render_template, jsonify, session, Response
+from flask import Blueprint, render_template, jsonify, session, Response, request
 from flask_socketio import emit
 from app import socketio
 from app.services.firebase_service import FirebaseService
 from app.services.processing_service import get_job_status
 from app.models import SessionData
 from app.state import frame_queues
+from datetime import datetime
+from collections import defaultdict
 import cv2
 import queue
 import time
@@ -87,6 +89,57 @@ def get_vehicle_distribution():
     distribution = stats.get('vehicle_distribution', {})
     
     return jsonify(distribution)
+
+@dashboard_bp.route('/api/historical-stats')
+def get_historical_stats():
+    """Aggregate people flow stats across all sessions by time period."""
+    period = request.args.get('period', 'daily')
+
+    all_sessions = firebase_service.get_recent_sessions(limit=1000)
+    if not all_sessions:
+        return jsonify({'labels': [], 'people_min': [], 'people_max': [],
+                        'vehicles_in': [], 'vehicles_out': []})
+
+    buckets = defaultdict(lambda: {
+        'people_min': 0, 'people_max': 0, 'vehicles_in': 0, 'vehicles_out': 0
+    })
+
+    for session_id, session_data in all_sessions.items():
+        start_time_str = session_data.get('start_time', '')
+        stats = session_data.get('statistics', {})
+        if not start_time_str or not stats:
+            continue
+
+        try:
+            dt = datetime.fromisoformat(start_time_str)
+        except ValueError:
+            continue
+
+        if period == 'hourly':
+            key = dt.strftime('%Y-%m-%d %H:00')
+        elif period == 'weekly':
+            key = f"{dt.isocalendar()[0]}-W{dt.isocalendar()[1]:02d}"
+        elif period == 'monthly':
+            key = dt.strftime('%Y-%m')
+        elif period == 'yearly':
+            key = dt.strftime('%Y')
+        else:
+            key = dt.strftime('%Y-%m-%d')
+
+        buckets[key]['people_min'] += stats.get('people_on_site_min', 0)
+        buckets[key]['people_max'] += stats.get('people_on_site_max', 0)
+        buckets[key]['vehicles_in'] += stats.get('vehicles_in', 0)
+        buckets[key]['vehicles_out'] += stats.get('vehicles_out', 0)
+
+    sorted_keys = sorted(buckets.keys())
+
+    return jsonify({
+        'labels': sorted_keys,
+        'people_min': [buckets[k]['people_min'] for k in sorted_keys],
+        'people_max': [buckets[k]['people_max'] for k in sorted_keys],
+        'vehicles_in': [buckets[k]['vehicles_in'] for k in sorted_keys],
+        'vehicles_out': [buckets[k]['vehicles_out'] for k in sorted_keys]
+    })
 
 @dashboard_bp.route('/api/processing-status')
 def get_processing_status():

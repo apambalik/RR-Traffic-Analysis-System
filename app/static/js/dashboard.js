@@ -179,6 +179,8 @@ class DashboardManager {
         if (this.sessionId) {
             this.fetchInitialData();
         }
+
+        this.fetchHistoricalStats('daily');
     }
 
     // -------------------------------------------------------------------------
@@ -351,6 +353,26 @@ class DashboardManager {
         }
     }
 
+    async fetchHistoricalStats(period = 'daily') {
+        try {
+            const response = await fetch(`/api/historical-stats?period=${period}`);
+            if (!response.ok) return;
+
+            const data = await response.json();
+
+            if (this.charts.peopleFlow) {
+                this.charts.peopleFlow.data.labels = data.labels;
+                this.charts.peopleFlow.data.datasets[0].data = data.people_min;
+                this.charts.peopleFlow.data.datasets[1].data = data.people_max;
+                this.charts.peopleFlow.data.datasets[2].data = data.vehicles_in;
+                this.charts.peopleFlow.data.datasets[3].data = data.vehicles_out;
+                this.charts.peopleFlow.update();
+            }
+        } catch (error) {
+            console.error('Failed to fetch historical stats:', error);
+        }
+    }
+
     /**
      * Resets all statistics to zero
      */
@@ -423,29 +445,101 @@ class DashboardManager {
 
     setupCharts() {
         const ctx = getElement('distributionChart');
-        if (!ctx) return;
-
-        this.charts.distribution = new Chart(ctx, {
-            type: 'bar',
-            data: {
-                labels: CONFIG.VEHICLE_TYPES,
-                datasets: [{
-                    label: 'Count',
-                    data: [...CONFIG.DEFAULT_CHART_DATA],
-                    backgroundColor: '#00a8ff',
-                    borderRadius: 4
-                }]
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                plugins: { legend: { display: false } },
-                scales: {
-                    y: { beginAtZero: true, grid: { color: '#e2e8f0' } },
-                    x: { grid: { display: false } }
+        if (ctx) {
+            this.charts.distribution = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: CONFIG.VEHICLE_TYPES,
+                    datasets: [{
+                        label: 'Count',
+                        data: [...CONFIG.DEFAULT_CHART_DATA],
+                        backgroundColor: '#00a8ff',
+                        borderRadius: 4
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: { legend: { display: false } },
+                    scales: {
+                        y: { beginAtZero: true, grid: { color: '#e2e8f0' } },
+                        x: { grid: { display: false } }
+                    }
                 }
-            }
-        });
+            });
+        }
+
+        const flowCtx = getElement('peopleFlowChart');
+        if (flowCtx) {
+            this.charts.peopleFlow = new Chart(flowCtx, {
+                type: 'line',
+                data: {
+                    labels: [],
+                    datasets: [
+                        {
+                            label: 'People Est. (Min)',
+                            data: [],
+                            borderColor: '#00a8ff',
+                            backgroundColor: 'rgba(0, 168, 255, 0.1)',
+                            fill: '+1',
+                            tension: 0.3,
+                            pointRadius: 4
+                        },
+                        {
+                            label: 'People Est. (Max)',
+                            data: [],
+                            borderColor: '#ff6b35',
+                            backgroundColor: 'rgba(255, 107, 53, 0.1)',
+                            fill: false,
+                            tension: 0.3,
+                            pointRadius: 4
+                        },
+                        {
+                            label: 'Vehicles In',
+                            data: [],
+                            borderColor: '#2ecc71',
+                            borderDash: [5, 5],
+                            fill: false,
+                            tension: 0.3,
+                            pointRadius: 3
+                        },
+                        {
+                            label: 'Vehicles Out',
+                            data: [],
+                            borderColor: '#e74c3c',
+                            borderDash: [5, 5],
+                            fill: false,
+                            tension: 0.3,
+                            pointRadius: 3
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    interaction: { mode: 'index', intersect: false },
+                    plugins: {
+                        legend: { position: 'top' },
+                        tooltip: {
+                            callbacks: {
+                                title: (items) => `Period: ${items[0].label}`
+                            }
+                        }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            title: { display: true, text: 'Count' },
+                            grid: { color: '#e2e8f0' }
+                        },
+                        x: {
+                            title: { display: true, text: 'Time Period' },
+                            grid: { display: false }
+                        }
+                    }
+                }
+            });
+        }
     }
 
     updateDistributionChart(distribution) {
@@ -465,6 +559,10 @@ class DashboardManager {
             btn.addEventListener('click', () => {
                 document.querySelectorAll('.time-btn').forEach(b => b.classList.remove('active'));
                 btn.classList.add('active');
+                const period = btn.dataset.period;
+                if (period) {
+                    this.fetchHistoricalStats(period);
+                }
             });
         });
     }

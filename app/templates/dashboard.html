@@ -231,6 +231,23 @@
                     </div>
                 </div>
             </div>
+
+            <!-- Historical People Flow Chart -->
+            <div class="card mt-3">
+                <div class="card-header">
+                    <div class="card-title"><i data-feather="trending-up"></i> People Flow Over Time</div>
+                    <div class="time-filter">
+                        <button class="time-btn" data-period="hourly">Hourly</button>
+                        <button class="time-btn active" data-period="daily">Daily</button>
+                        <button class="time-btn" data-period="weekly">Weekly</button>
+                        <button class="time-btn" data-period="monthly">Monthly</button>
+                        <button class="time-btn" data-period="yearly">Yearly</button>
+                    </div>
+                </div>
+                <div class="chart-container" style="height: 300px;">
+                    <canvas id="peopleFlowChart"></canvas>
+                </div>
+            </div>
         </section>
     </main>
 </div>
