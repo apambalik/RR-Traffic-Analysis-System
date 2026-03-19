@@ -13,7 +13,7 @@ from PIL import Image
 from typing import TYPE_CHECKING, Tuple, Optional
 
 import torch
-from rfdetr import RFDETRBase
+from rfdetr import RFDETRMedium
 
 from app.config import Config
 
@@ -77,7 +77,7 @@ class VideoProcessor:
         print(f"VideoProcessor: Using device '{device}'")
         return device
     
-    def _load_model(self, model_path: str) -> RFDETRBase:
+    def _load_model(self, model_path: str) -> RFDETRMedium:
         """
         Load the RF-DETR model and move to appropriate device.
         
@@ -87,7 +87,7 @@ class VideoProcessor:
         Returns:
             Loaded model ready for inference
         """
-        model = RFDETRBase(pretrain_weights=model_path)
+        model = RFDETRMedium(pretrain_weights=model_path)
         
         # Move model to device if supported
         if hasattr(model, 'model') and hasattr(model.model, 'to'):

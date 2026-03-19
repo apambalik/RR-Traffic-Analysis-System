@@ -48,3 +48,11 @@ class Config:
     FIREBASE_EVENT_BATCH_INTERVAL = 30  # Batch events every 30 seconds
     FIREBASE_STATISTICS_INTERVAL = 45  # Update statistics every 45 seconds
     FIREBASE_LIVE_STREAM_INTERVAL = 30  # Live stream data save interval
+
+    CAMERA_LOCATION_MAP = {
+        '192.168.1.101': 'R&R Skudai',
+        '10.5.20.15': 'R&R Dengkil',
+        '192.168.68.111': 'Local Test Unit'
+    }
+
+    # rtsp://192.168.68.111:8080/h264_ulaw.sdp

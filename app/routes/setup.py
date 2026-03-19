@@ -8,6 +8,7 @@ from app.services.processing_service import start_processing, get_job_status, st
 from app.config import Config
 import cv2
 import base64
+from urllib.parse import urlparse
 
 setup_bp = Blueprint('setup', __name__)
 
@@ -157,7 +158,27 @@ def start_processing_route():
         return jsonify({'error': f'Missing configuration for {camera_role} camera'}), 400
     
     location = data.get('location', 'Unknown')
-    
+    # Only attempt detection if it's a live stream and location isn't manually set
+    if is_live_stream and (not location or location == 'Unknown'):
+        try:
+            # Parse the stream URL (e.g., rtsp://user:pass@192.168.1.101:554/stream)
+            parsed_url = urlparse(video_path)
+            
+            # hostname automatically extracts the IP or domain part
+            ip_address = parsed_url.hostname 
+            
+            # Lookup the IP in your config mapping
+            detected_location = Config.CAMERA_LOCATION_MAP.get(ip_address)
+            
+            if detected_location:
+                location = detected_location
+                print(f"Auto-detected location '{location}' from camera IP: {ip_address}")
+            else:
+                print(f"IP {ip_address} not found in CAMERA_LOCATION_MAP")
+                
+        except Exception as e:
+            print(f"Location auto-detection failed: {e}")
+            
     # Parse video start time if provided (for historical footage)
     video_start_time = None
     if data.get('video_start_time'):

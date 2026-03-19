@@ -353,7 +353,8 @@ def _process_video(
     """
     # Initialize video capture
     cap = cv2.VideoCapture(job.video_path)
-    fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
+    # fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
+    fps = 30.0
     total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
     
     # Setup video writer
