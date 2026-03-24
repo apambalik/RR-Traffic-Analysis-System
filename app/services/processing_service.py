@@ -475,7 +475,7 @@ def _process_live_stream(
                     _emit_status_update(job)  # Notify client of reconnection attempt
                     time.sleep(retry_delay)
                 
-                cap = cv2.VideoCapture(job.video_path)
+                cap = cv2.VideoCapture(job.video_path, cv2.CAP_FFMPEG)
                 cap.set(cv2.CAP_PROP_BUFFERSIZE, Config.LIVE_STREAM_BUFFER_SIZE)
                 
                 if not cap.isOpened():

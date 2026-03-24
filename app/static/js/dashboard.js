@@ -772,7 +772,7 @@ class WorkbenchManager {
      * Connect to a live stream and capture first frame
      */
     async connectStream() {
-        const { streamUrlInput, streamStatusDisplay } = this.globalElements;
+        const { streamUrlInput, streamStatusDisplay, locationInput } = this.globalElements;
         const streamUrl = streamUrlInput?.value?.trim();
 
         if (!streamUrl) {
@@ -813,6 +813,24 @@ class WorkbenchManager {
                 this.globalElements.btnDisconnectStream.classList.remove('hidden');
                 this.globalElements.streamUrlInput.disabled = true; // Lock input
                 
+                if (data.detected_location) {
+                    // Update the sidebar input
+                    if (locationInput) {
+                        locationInput.value = data.detected_location;
+                    }
+                    
+                    // Update the navigation bar display
+                    const navLocationDisplay = document.getElementById('current-location');
+                    if (navLocationDisplay) {
+                        navLocationDisplay.textContent = data.detected_location;
+                    }
+                    
+                    // Optional: Show a brief notification
+                    if (window.dashboardManager) {
+                        window.dashboardManager.showNotification('Location Detected', `Auto-configured to ${data.detected_location}`, 'success');
+                    }
+                }
+
                 // Load the captured frame for line drawing
                 await this.loadStreamFrame(this.currentCameraRole, data.frame, data.line_points);
                 this.updateStartButtonState();

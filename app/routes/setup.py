@@ -232,19 +232,42 @@ def configure_stream():
         
         print(f"Connecting to stream: {stream_url} for {camera_role} camera")
         
-        # Attempt to connect and capture first frame
-        cap = cv2.VideoCapture(stream_url)
-        cap.set(cv2.CAP_PROP_BUFFERSIZE, Config.LIVE_STREAM_BUFFER_SIZE)
+        # Force TCP transport for RTSP to avoid UDP packet loss/corruption
+        cap = cv2.VideoCapture(stream_url, cv2.CAP_FFMPEG, [
+            cv2.CAP_PROP_OPEN_TIMEOUT_MSEC, Config.LIVE_STREAM_CONNECTION_TIMEOUT * 1000,
+        ])
+        if stream_url.lower().startswith('rtsp://'):
+            cap.set(cv2.CAP_PROP_BUFFERSIZE, Config.LIVE_STREAM_BUFFER_SIZE)
         
         if not cap.isOpened():
             return jsonify({'error': 'Cannot connect to stream. Please check the URL.'}), 400
         
-        # Try to read a frame with timeout
-        ret, frame = cap.read()
+        # Retry reading frames — the decoder may need several attempts to
+        # land on a valid keyframe, especially over RTSP.
+        frame = None
+        max_read_attempts = 30
+        for attempt in range(max_read_attempts):
+            ret, frame = cap.read()
+            if ret and frame is not None:
+                break
         cap.release()
         
-        if not ret or frame is None:
-            return jsonify({'error': 'Connected but cannot read from stream.'}), 400
+        if frame is None:
+            return jsonify({'error': 'Connected but cannot read from stream. The camera may use an unsupported codec.'}), 400
+        
+        detected_location = None
+        try:
+            parsed_url = urlparse(stream_url)
+            ip_address = parsed_url.hostname 
+            detected_location = Config.CAMERA_LOCATION_MAP.get(ip_address)
+            
+            if detected_location:
+                # Update the session with the new location
+                session['location'] = detected_location
+                session.modified = True
+                print(f"Auto-detected location '{detected_location}' from camera IP: {ip_address}")
+        except Exception as e:
+            print(f"Location auto-detection failed during stream config: {e}")
         
         # Create/get session ID
         session_id = session.get('current_session')
@@ -279,7 +302,8 @@ def configure_stream():
             'width': Config.FRAME_WIDTH,
             'height': Config.FRAME_HEIGHT,
             'line_points': line_points,
-            'is_live_stream': True
+            'is_live_stream': True,
+            'detected_location': detected_location
         })
         
     except Exception as e:

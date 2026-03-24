@@ -4,6 +4,9 @@ import json
 
 load_dotenv()
 
+# Force RTSP over TCP to prevent UDP packet loss causing decode failures
+os.environ.setdefault("OPENCV_FFMPEG_CAPTURE_OPTIONS", "rtsp_transport;tcp")
+
 class Config:
     SECRET_KEY = os.environ.get('SECRET_KEY') or 'dev-secret-key'
     UPLOAD_FOLDER = os.environ.get('UPLOAD_FOLDER', 'uploads')
