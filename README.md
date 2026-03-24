@@ -9,7 +9,7 @@ app_port: 7860
 
 # Real-time Vehicle Detection and Traffic Analysis System for Malaysia Rest & Recreation (R&R) Stops
 ## Description of the system:
-- using RF-Detr Base model (roboflow's) for detecting and classifying vehicles entering and exiting the R&R stops from surveillance footage (video file or live camera feed) into sedan, SUV, pickup, van, motorcycle, bus or truck.
+- using YOLOv26s model with TensorRT (dynamic batch) for detecting and classifying vehicles entering and exiting the R&R stops from surveillance footage (video file or live camera feed) into sedan, SUV, pickup, van, motorcycle, bus or truck. Designed for real-time multi-camera (10–40) inference with minimal latency.
 - track (using bytetrack) and count (once the vehicle crosses a user-defined line), and calculate the people flow (using the data of the min and max seat capacity of each vehicle type). E,g,. Sedan - min = 1, max = 5.
 - after user uploaded or selected the surveillance footage, user will be prompt to draw the line on first frame extracted.
 - The data is logged, saved to Firebase, and displayed in the dashboard. 
@@ -44,7 +44,7 @@ rr-traffic-analysis-system/
 │   │   └── setup.py             # Renamed from 'config.py' to avoid confusion with app/config.py
 │   ├── services/
 │   │   ├── __init__.py
-│   │   ├── video_processor.py   # The RF-DETR & ByteTrack Logic (Threaded)
+│   │   ├── video_processor.py   # YOLOv26s (TensorRT) & ByteTrack Logic (Threaded)
 │   │   ├── firebase_service.py  # Handles 'logging' and 'real-time' DB pushes
 │   │   └── processing_service.py  
 │   ├── static/

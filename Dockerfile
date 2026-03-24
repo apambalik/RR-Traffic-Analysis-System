@@ -1,18 +1,17 @@
-# Use a lightweight Python image
-FROM python:3.11-slim
+# TensorRT runtime with Python 3.11 — provides CUDA + TensorRT libraries
+FROM nvcr.io/nvidia/tensorrt:25.01-py3
 
-# Install system dependencies (Updated with FFmpeg for video support)
-RUN apt-get update && apt-get install -y \
+# Install system dependencies for OpenCV and video processing
+RUN apt-get update && apt-get install -y --no-install-recommends \
     libgl1 \
     libglib2.0-0 \
     libsm6 \
     libxext6 \
     libxrender-dev \
     ffmpeg \
-    build-essential \
     && rm -rf /var/lib/apt/lists/*
 
-# Set up a new user 'user' (Hugging Face requires a non-root user)
+# Set up a non-root user (required by Hugging Face Spaces)
 RUN useradd -m -u 1000 user
 USER user
 ENV HOME=/home/user \

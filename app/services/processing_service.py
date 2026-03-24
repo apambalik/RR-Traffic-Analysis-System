@@ -17,7 +17,6 @@ from typing import Dict, List, Optional, Set, Tuple, Any
 
 import cv2
 import numpy as np
-from PIL import Image
 import supervision as sv
 
 from app import socketio
@@ -621,13 +620,10 @@ def _process_single_frame(
     Returns:
         Annotated frame ready for output/streaming
     """
-    # Resize and convert
     resized = cv2.resize(frame, (Config.FRAME_WIDTH, Config.FRAME_HEIGHT))
-    rgb_frame = cv2.cvtColor(resized, cv2.COLOR_BGR2RGB)
-    pil_image = Image.fromarray(rgb_frame)
     
-    # Detect and track
-    detections = processor.detect(pil_image)
+    # YOLO accepts BGR numpy arrays directly — no colour conversion needed
+    detections = processor.detect(resized)
     detections = tracker.update_with_detections(detections)
     
     # Build labels
@@ -657,9 +653,9 @@ def _process_single_frame(
 def _create_tracker(fps: float) -> sv.ByteTrack:
     """Create and configure ByteTrack tracker."""
     return sv.ByteTrack(
-        track_thresh=PROC_CONFIG.TRACK_THRESH,
-        track_buffer=PROC_CONFIG.TRACK_BUFFER,
-        match_thresh=PROC_CONFIG.MATCH_THRESH,
+        track_activation_threshold=PROC_CONFIG.TRACK_THRESH,
+        lost_track_buffer=PROC_CONFIG.TRACK_BUFFER,
+        minimum_matching_threshold=PROC_CONFIG.MATCH_THRESH,
         frame_rate=int(fps)
     )
 

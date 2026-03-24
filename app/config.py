@@ -22,10 +22,14 @@ class Config:
         FIREBASE_CREDENTIALS = os.environ.get('FIREBASE_CREDENTIALS_PATH')
 
     # Model
-    MODEL_PATH = os.environ.get('MODEL_PATH', 'model_data/checkpoint_best_total.pth')
+    MODEL_PATH = os.environ.get('MODEL_PATH', 'model_data/best.engine')
     CONFIDENCE_THRESHOLD = 0.5
     FRAME_WIDTH = 672
     FRAME_HEIGHT = 448
+
+    # Batch inference — tuning knobs for the shared BatchInferenceEngine
+    BATCH_MAX_SIZE = int(os.environ.get('BATCH_MAX_SIZE', 40))
+    BATCH_MAX_WAIT_MS = float(os.environ.get('BATCH_MAX_WAIT_MS', 15.0))
     
     # Vehicle capacity mapping
     VEHICLE_CAPACITY = {
