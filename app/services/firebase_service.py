@@ -74,13 +74,44 @@ class FirebaseService:
                 entry_stats = existing_entry
                 exit_stats = camera_stats
             
-            # Calculate combined statistics
+            # Sum raw per-camera counts first, then derive clamped values.
+            # This avoids the "sum of clamped != clamped sum" pitfall when one
+            # camera is over-counted on IN and the other on OUT.
+            total_in = entry_stats.get('vehicles_in', 0) + exit_stats.get('vehicles_in', 0)
+            total_out = entry_stats.get('vehicles_out', 0) + exit_stats.get('vehicles_out', 0)
+
+            # Raw people sums (with fallback for legacy stats that don't expose them)
+            people_in_min = entry_stats.get('people_in_min', 0) + exit_stats.get('people_in_min', 0)
+            people_in_max = entry_stats.get('people_in_max', 0) + exit_stats.get('people_in_max', 0)
+            people_out_min = entry_stats.get('people_out_min', 0) + exit_stats.get('people_out_min', 0)
+            people_out_max = entry_stats.get('people_out_max', 0) + exit_stats.get('people_out_max', 0)
+
+            has_raw_people = any(
+                key in entry_stats or key in exit_stats
+                for key in ('people_in_min', 'people_in_max', 'people_out_min', 'people_out_max')
+            )
+
+            if has_raw_people:
+                on_site_min = max(0, people_in_min - people_out_min)
+                on_site_max = max(0, people_in_max - people_out_max)
+            else:
+                # Legacy fallback: per-camera values are already clamped,
+                # so we can only sum them. Accepted as "best effort".
+                on_site_min = (entry_stats.get('people_on_site_min', 0)
+                               + exit_stats.get('people_on_site_min', 0))
+                on_site_max = (entry_stats.get('people_on_site_max', 0)
+                               + exit_stats.get('people_on_site_max', 0))
+
             combined = {
-                'vehicles_in': (entry_stats.get('vehicles_in', 0) + exit_stats.get('vehicles_in', 0)),
-                'vehicles_out': (entry_stats.get('vehicles_out', 0) + exit_stats.get('vehicles_out', 0)),
-                'net_vehicles': (entry_stats.get('net_vehicles', 0) + exit_stats.get('net_vehicles', 0)),
-                'people_on_site_min': (entry_stats.get('people_on_site_min', 0) + exit_stats.get('people_on_site_min', 0)),
-                'people_on_site_max': (entry_stats.get('people_on_site_max', 0) + exit_stats.get('people_on_site_max', 0)),
+                'vehicles_in': total_in,
+                'vehicles_out': total_out,
+                'net_vehicles': max(0, total_in - total_out),
+                'people_in_min': people_in_min,
+                'people_in_max': people_in_max,
+                'people_out_min': people_out_min,
+                'people_out_max': people_out_max,
+                'people_on_site_min': on_site_min,
+                'people_on_site_max': on_site_max,
                 'vehicle_distribution': self._merge_distributions(
                     entry_stats.get('vehicle_distribution', {}),
                     exit_stats.get('vehicle_distribution', {})

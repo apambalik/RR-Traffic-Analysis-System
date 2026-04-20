@@ -378,7 +378,7 @@ def _process_video(
     last_event_count = 0
     
     try:
-        while True:
+        while not job.should_stop:
             ret, frame = cap.read()
             if not ret:
                 break

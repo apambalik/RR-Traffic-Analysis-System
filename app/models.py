@@ -44,20 +44,25 @@ class SessionData:
         
         people_min = sum(e.seats_min for e in self.events if e.direction == 'IN')
         people_max = sum(e.seats_max for e in self.events if e.direction == 'IN')
-        
+
         people_min_out = sum(e.seats_min for e in self.events if e.direction == 'OUT')
         people_max_out = sum(e.seats_max for e in self.events if e.direction == 'OUT')
 
-        # on_site_min = max(0, people_min - people_min_out)
-        # on_site_max = max(0, people_max - people_max_out)
+        # Derived "on-site" values are clamped at 0 because negative occupancy
+        # is not physically meaningful — it just indicates pre-existing vehicles
+        # at session start or missed detections. Raw in/out sums are also
+        # exposed so downstream aggregation can recompute correctly across
+        # multiple cameras (sum-then-clamp, not clamp-then-sum).
         return {
             'vehicles_in': vehicles_in,
             'vehicles_out': vehicles_out,
-            'net_vehicles': vehicles_in - vehicles_out,
-            'people_on_site_min': people_min - people_min_out,
-            'people_on_site_max': people_max - people_max_out,
-            # 'people_on_site_min': on_site_min,
-            # 'people_on_site_max': on_site_max,
+            'net_vehicles': max(0, vehicles_in - vehicles_out),
+            'people_in_min': people_min,
+            'people_in_max': people_max,
+            'people_out_min': people_min_out,
+            'people_out_max': people_max_out,
+            'people_on_site_min': max(0, people_min - people_min_out),
+            'people_on_site_max': max(0, people_max - people_max_out),
             'vehicle_distribution': self._get_distribution()
         }
     

@@ -80,6 +80,10 @@ const createEmptyStats = () => ({
     vehicles_in: 0,
     vehicles_out: 0,
     net_vehicles: 0,
+    people_in_min: 0,
+    people_in_max: 0,
+    people_out_min: 0,
+    people_out_max: 0,
     people_on_site_min: 0,
     people_on_site_max: 0,
     vehicle_distribution: {}
@@ -118,17 +122,33 @@ const mergeDistributions = (base, added) => {
  * @param {Object} newStats - New statistics to add
  * @returns {Object} Accumulated statistics
  */
-const accumulateStats = (baseline, newStats) => ({
-    vehicles_in: baseline.vehicles_in + (newStats.vehicles_in || 0),
-    vehicles_out: baseline.vehicles_out + (newStats.vehicles_out || 0),
-    net_vehicles: baseline.net_vehicles + (newStats.net_vehicles || 0),
-    people_on_site_min: baseline.people_on_site_min + (newStats.people_on_site_min || 0),
-    people_on_site_max: baseline.people_on_site_max + (newStats.people_on_site_max || 0),
-    vehicle_distribution: mergeDistributions(
-        baseline.vehicle_distribution,
-        newStats.vehicle_distribution || {}
-    )
-});
+const accumulateStats = (baseline, newStats) => {
+    // Sum raw counts; derived (net / on-site) values are recomputed from the
+    // summed raw counts and clamped at 0 to avoid summing already-clamped
+    // per-camera values incorrectly.
+    const vehicles_in = (baseline.vehicles_in || 0) + (newStats.vehicles_in || 0);
+    const vehicles_out = (baseline.vehicles_out || 0) + (newStats.vehicles_out || 0);
+    const people_in_min = (baseline.people_in_min || 0) + (newStats.people_in_min || 0);
+    const people_in_max = (baseline.people_in_max || 0) + (newStats.people_in_max || 0);
+    const people_out_min = (baseline.people_out_min || 0) + (newStats.people_out_min || 0);
+    const people_out_max = (baseline.people_out_max || 0) + (newStats.people_out_max || 0);
+
+    return {
+        vehicles_in,
+        vehicles_out,
+        net_vehicles: Math.max(0, vehicles_in - vehicles_out),
+        people_in_min,
+        people_in_max,
+        people_out_min,
+        people_out_max,
+        people_on_site_min: Math.max(0, people_in_min - people_out_min),
+        people_on_site_max: Math.max(0, people_in_max - people_out_max),
+        vehicle_distribution: mergeDistributions(
+            baseline.vehicle_distribution,
+            newStats.vehicle_distribution || {}
+        )
+    };
+};
 
 // =============================================================================
 // DASHBOARD MANAGER
@@ -150,6 +170,8 @@ class DashboardManager {
             [CAMERA_ROLES.ENTRY]: createEmptyStats(),
             [CAMERA_ROLES.EXIT]: createEmptyStats()
         };
+
+        this.isProcessing = false;
 
         // Continue session feature - accumulate stats instead of replacing
         this.continueMode = false;
@@ -218,10 +240,12 @@ class DashboardManager {
     }
 
     handleVehicleEvent(data) {
+        if (!this.isProcessing) return;
         this.addEventToLog(data.event);
     }
 
     handleStatisticsUpdate(data) {
+        if (!this.isProcessing) return;
         if (data.camera_role) {
             this.updateCameraStatistics(data.camera_role, data.statistics);
         } else {
@@ -300,26 +324,34 @@ class DashboardManager {
         const entry = this.cameraStats[CAMERA_ROLES.ENTRY];
         const exit = this.cameraStats[CAMERA_ROLES.EXIT];
 
-        // Calculate net vehicle distribution (entry - exit)
-        const allTypes = new Set([
-            ...Object.keys(entry.vehicle_distribution || {}),
-            ...Object.keys(exit.vehicle_distribution || {})
-        ]);
+        // Sum raw per-camera counts, then derive clamped values from the
+        // totals. This prevents a camera over-counted on IN from cancelling
+        // a camera over-counted on OUT only after each was independently
+        // clamped to 0.
+        const vehicles_in = (entry.vehicles_in || 0) + (exit.vehicles_in || 0);
+        const vehicles_out = (entry.vehicles_out || 0) + (exit.vehicles_out || 0);
+        const people_in_min = (entry.people_in_min || 0) + (exit.people_in_min || 0);
+        const people_in_max = (entry.people_in_max || 0) + (exit.people_in_max || 0);
+        const people_out_min = (entry.people_out_min || 0) + (exit.people_out_min || 0);
+        const people_out_max = (entry.people_out_max || 0) + (exit.people_out_max || 0);
 
-        const netDistribution = {};
-        allTypes.forEach(type => {
-            netDistribution[type] = (entry.vehicle_distribution[type] || 0) -
-                                    (exit.vehicle_distribution[type] || 0);
-        });
+        const hasRawPeople = [entry, exit].some(s =>
+            s && ('people_in_min' in s || 'people_in_max' in s
+                  || 'people_out_min' in s || 'people_out_max' in s)
+        );
 
-        // Aggregate totals
         const aggregated = {
-            vehicles_in: (entry.vehicles_in || 0) + (exit.vehicles_in || 0),
-            vehicles_out: (entry.vehicles_out || 0) + (exit.vehicles_out || 0),
-            net_vehicles: (entry.net_vehicles || 0) + (exit.net_vehicles || 0),
-            people_on_site_min: (entry.people_on_site_min || 0) + (exit.people_on_site_min || 0),
-            people_on_site_max: (entry.people_on_site_max || 0) + (exit.people_on_site_max || 0),
-            vehicle_distribution: netDistribution
+            vehicles_in,
+            vehicles_out,
+            net_vehicles: Math.max(0, vehicles_in - vehicles_out),
+            people_on_site_min: hasRawPeople
+                ? Math.max(0, people_in_min - people_out_min)
+                : (entry.people_on_site_min || 0) + (exit.people_on_site_min || 0),
+            people_on_site_max: hasRawPeople
+                ? Math.max(0, people_in_max - people_out_max)
+                : (entry.people_on_site_max || 0) + (exit.people_on_site_max || 0),
+            entry_distribution: entry.vehicle_distribution || {},
+            exit_distribution: exit.vehicle_distribution || {}
         };
 
         this.updateDisplay(aggregated);
@@ -338,8 +370,14 @@ class DashboardManager {
             peopleRange.textContent = `${stats.people_on_site_min || 0} - ${stats.people_on_site_max || 0}`;
         }
 
-        if (stats.vehicle_distribution) {
-            this.updateDistributionChart(stats.vehicle_distribution);
+        if (stats.entry_distribution || stats.exit_distribution) {
+            this.updateDistributionChart(
+                stats.entry_distribution || {},
+                stats.exit_distribution || {}
+            );
+        } else if (stats.vehicle_distribution) {
+            // Fallback for fetchInitialData or legacy single-object payloads
+            this.updateDistributionChart(stats.vehicle_distribution, {});
         }
     }
 
@@ -394,6 +432,7 @@ class DashboardManager {
 
         if (this.charts.distribution) {
             this.charts.distribution.data.datasets[0].data = [...CONFIG.DEFAULT_CHART_DATA];
+            this.charts.distribution.data.datasets[1].data = [...CONFIG.DEFAULT_CHART_DATA];
             this.charts.distribution.update('none');
         }
     }
@@ -458,17 +497,25 @@ class DashboardManager {
                 type: 'bar',
                 data: {
                     labels: CONFIG.VEHICLE_TYPES,
-                    datasets: [{
-                        label: 'Count',
-                        data: [...CONFIG.DEFAULT_CHART_DATA],
-                        backgroundColor: '#00a8ff',
-                        borderRadius: 4
-                    }]
+                    datasets: [
+                        {
+                            label: 'Entry',
+                            data: [...CONFIG.DEFAULT_CHART_DATA],
+                            backgroundColor: '#2ecc71',
+                            borderRadius: 4
+                        },
+                        {
+                            label: 'Exit',
+                            data: [...CONFIG.DEFAULT_CHART_DATA],
+                            backgroundColor: '#e74c3c',
+                            borderRadius: 4
+                        }
+                    ]
                 },
                 options: {
                     responsive: true,
                     maintainAspectRatio: false,
-                    plugins: { legend: { display: false } },
+                    plugins: { legend: { display: true, position: 'top' } },
                     scales: {
                         y: { beginAtZero: true, grid: { color: '#e2e8f0' } },
                         x: { grid: { display: false } }
@@ -550,11 +597,13 @@ class DashboardManager {
         }
     }
 
-    updateDistributionChart(distribution) {
-        if (!this.charts.distribution || !distribution) return;
+    updateDistributionChart(entryDist, exitDist) {
+        if (!this.charts.distribution) return;
 
-        this.charts.distribution.data.labels = Object.keys(distribution);
-        this.charts.distribution.data.datasets[0].data = Object.values(distribution);
+        const types = CONFIG.VEHICLE_TYPES;
+        this.charts.distribution.data.labels = types;
+        this.charts.distribution.data.datasets[0].data = types.map(t => entryDist[t] || 0);
+        this.charts.distribution.data.datasets[1].data = types.map(t => exitDist[t] || 0);
         this.charts.distribution.update('none');
     }
 
@@ -1080,8 +1129,7 @@ class WorkbenchManager {
             role => this.cameraConfigs[role].processingStatus === PROCESSING_STATUS.PROCESSING
         );
 
-        // Show/hide stop button based on processing state and live streams
-        if (anyProcessing && this.hasLiveStreams) {
+        if (anyProcessing) {
             this.globalElements.stopBtn?.classList.remove('hidden');
         } else {
             this.globalElements.stopBtn?.classList.add('hidden');
@@ -1090,11 +1138,9 @@ class WorkbenchManager {
         if (allDone) {
             this.sessionCompleted = true;
             this.hasLiveStreams = false;
+            if (window.dashboardManager) window.dashboardManager.isProcessing = false;
 
-            // Disable continue mode
-            // if (window.dashboardManager) {
-            //     window.dashboardManager.setContinueMode(false);
-            // }
+            this._teardownAnalysisUI();
 
             this.globalElements.startBtn.innerHTML = `<i data-feather="check"></i> Analysis Complete`;
             this.globalElements.startBtn.disabled = false;
@@ -1330,14 +1376,12 @@ class WorkbenchManager {
                 }
             }
 
-            // Show stop button for live streams
-            if (this.hasLiveStreams) {
-                this.globalElements.stopBtn?.classList.remove('hidden');
-            }
+            this.globalElements.stopBtn?.classList.remove('hidden');
 
             // Join socket room
             if (window.dashboardManager?.socket && sessionId) {
                 window.dashboardManager.sessionId = sessionId;
+                window.dashboardManager.isProcessing = true;
                 window.dashboardManager.socket.emit('join_session', { session_id: sessionId });
             }
         } catch (error) {
@@ -1368,6 +1412,37 @@ class WorkbenchManager {
 
         this.globalElements.liveBadge.classList.remove('hidden');
         this.globalElements.modeLabel.textContent = 'Live Analysis';
+    }
+
+    /**
+     * Tears down live-feed UI for all cameras after processing ends
+     * (either by manual stop or natural completion).
+     */
+    _teardownAnalysisUI() {
+        Object.values(CAMERA_ROLES).forEach(role => {
+            const camEls = this.cameraElements[role];
+            const config = this.cameraConfigs[role];
+
+            // Kill the MJPEG stream
+            if (camEls.liveFeed) {
+                camEls.liveFeed.src = '';
+                camEls.liveFeed.style.display = 'none';
+            }
+
+            // Restore canvas or placeholder
+            if (config.hasVideo && camEls.canvas) {
+                camEls.canvas.style.display = 'block';
+            } else if (camEls.placeholder) {
+                camEls.placeholder.style.display = '';
+            }
+
+            // Reset progress
+            if (camEls.progressBar) camEls.progressBar.style.width = '0%';
+            if (camEls.progressText) camEls.progressText.textContent = '0%';
+        });
+
+        this.globalElements.liveBadge.classList.add('hidden');
+        this.globalElements.modeLabel.textContent = 'Setup';
     }
 
     /**
@@ -1407,6 +1482,9 @@ class WorkbenchManager {
 
                 this.sessionCompleted = true;
                 this.hasLiveStreams = false;
+                if (window.dashboardManager) window.dashboardManager.isProcessing = false;
+
+                this._teardownAnalysisUI();
                 
                 stopBtn.classList.add('hidden');
                 startBtn.innerHTML = `<i data-feather="rotate-ccw"></i>Start New Session`;

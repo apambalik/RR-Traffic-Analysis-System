@@ -29,7 +29,7 @@ class Config:
 
     # Batch inference — tuning knobs for the shared BatchInferenceEngine
     BATCH_MAX_SIZE = int(os.environ.get('BATCH_MAX_SIZE', 40))
-    BATCH_MAX_WAIT_MS = float(os.environ.get('BATCH_MAX_WAIT_MS', 15.0))
+    BATCH_MAX_WAIT_MS = float(os.environ.get('BATCH_MAX_WAIT_MS', 5.0))
     
     # Vehicle capacity mapping
     VEHICLE_CAPACITY = {
@@ -56,7 +56,7 @@ class Config:
     CAMERA_LOCATION_MAP = {
         '192.168.1.101': 'R&R Skudai',
         '10.5.20.15': 'R&R Dengkil',
-        '192.168.68.111': 'Local Test Unit'
+        '192.168.68.106': 'Local Test Unit'
     }
 
-    # rtsp://192.168.68.111:8080/h264_ulaw.sdp
+    # rtsp://192.168.68.106:8080/h264_ulaw.sdp

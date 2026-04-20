@@ -50,6 +50,10 @@ def get_statistics():
             'vehicles_in': 0,
             'vehicles_out': 0,
             'net_vehicles': 0,
+            'people_in_min': 0,
+            'people_in_max': 0,
+            'people_out_min': 0,
+            'people_out_max': 0,
             'people_on_site_min': 0,
             'people_on_site_max': 0,
             'vehicle_distribution': {}
@@ -186,34 +190,34 @@ def generate_frames(camera_role):
     
     print(f"Starting frame stream for {camera_role} camera")
     last_frame_time = time.time()
+    consecutive_timeouts = 0
+    MAX_CONSECUTIVE_TIMEOUTS = 3
     
     while True:
         try:
-            # Get frame from queue with timeout
             frame = frame_queue.get(timeout=5.0)
+            consecutive_timeouts = 0
             
-            # Encode frame as JPEG
             ret, buffer = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 85])
             if not ret:
                 print(f"Failed to encode frame for {camera_role}")
                 continue
             
-            # Convert to bytes
             frame_bytes = buffer.tobytes()
             
-            # Calculate FPS for monitoring
             current_time = time.time()
             fps = 1.0 / (current_time - last_frame_time) if (current_time - last_frame_time) > 0 else 0
             last_frame_time = current_time
             
             if frame_bytes:
-                # Yield frame in multipart format
                 yield (b'--frame\r\n'
                        b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
             
         except queue.Empty:
-            # No frames available - continue waiting
-            time.sleep(0.1)
+            consecutive_timeouts += 1
+            if consecutive_timeouts >= MAX_CONSECUTIVE_TIMEOUTS:
+                print(f"No frames for {camera_role} after {MAX_CONSECUTIVE_TIMEOUTS * 5}s — ending stream")
+                break
             continue
         except GeneratorExit:
             print(f"Client disconnected from {camera_role} stream")

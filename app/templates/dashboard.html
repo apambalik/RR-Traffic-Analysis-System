@@ -182,14 +182,14 @@
                         <div class="kpi-value negative" id="vehicles-out">0</div>
                     </div>
                 </div>
-                <div class="kpi-card">
+                <div class="kpi-card" title="Estimated vehicles currently on site (Vehicles In − Vehicles Out). Clamped to 0 — negative values would indicate vehicles that were already on site before the session started or missed entry detections.">
                     <div class="kpi-icon blue"><i data-feather="truck"></i></div>
                     <div class="kpi-content">
-                        <div class="kpi-label">Net Vehicles</div>
+                        <div class="kpi-label">Vehicles On Site</div>
                         <div class="kpi-value" id="net-vehicles">0</div>
                     </div>
                 </div>
-                <div class="kpi-card">
+                <div class="kpi-card" title="Estimated people currently on site based on vehicle seating capacity (min – max). Clamped to 0.">
                     <div class="kpi-icon orange"><i data-feather="users"></i></div>
                     <div class="kpi-content">
                         <div class="kpi-label">Est. People Range</div>
@@ -201,7 +201,7 @@
             <div class="grid-2">
                 <div class="card">
                     <div class="card-header">
-                        <div class="card-title"><i data-feather="bar-chart-2"></i> Net Vehicles by Type</div>
+                        <div class="card-title"><i data-feather="bar-chart-2"></i> Vehicles by Type</div>
                     </div>
                     <div class="chart-container">
                         <canvas id="distributionChart"></canvas>
