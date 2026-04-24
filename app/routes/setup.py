@@ -60,6 +60,8 @@ def upload_video():
         # Store video path for specific camera
         session['cameras'][camera_role]['video_path'] = upload_path
         session['cameras'][camera_role]['has_video'] = True
+        # Ensure uploaded files are always treated as file sources
+        session['cameras'][camera_role]['is_live_stream'] = False
         session.modified = True
         
         print(f"Upload successful for {camera_role} camera")
@@ -189,6 +191,8 @@ def start_processing_route():
     
     # Store location in session for dashboard display
     session['location'] = location
+
+    start_frame = data.get('start_frame', 0)
     
     # Start background processing (returns immediately)
     try:
@@ -199,7 +203,8 @@ def start_processing_route():
             location=location,
             video_start_time=video_start_time,
             camera_role=camera_role,
-            is_live_stream=is_live_stream
+            is_live_stream=is_live_stream,
+            start_frame=start_frame
         )
         
         return jsonify({

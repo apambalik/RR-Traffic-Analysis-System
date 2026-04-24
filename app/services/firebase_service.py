@@ -40,20 +40,33 @@ class FirebaseService:
         }
         
         if camera_role:
+            stats_to_save = camera_stats
+
+            # In continue mode and periodic batched writes, the current in-memory
+            # run starts with a fresh event list. Merge persisted + current events
+            # so we preserve full camera history across runs without duplicating
+            # already-written events from prior batches.
+            if update_events:
+                existing_events = session_ref.child(f'events_{camera_role}').get()
+                merged_events = self._merge_event_dicts(
+                    self._normalize_event_list(existing_events),
+                    [event.to_dict() for event in session_data.events]
+                )
+                data[f'events_{camera_role}'] = merged_events
+                stats_to_save = self._calculate_statistics_from_event_dicts(merged_events)
+
             # Save camera-specific statistics (won't overwrite other camera)
-            data[f'statistics_{camera_role}'] = camera_stats
+            data[f'statistics_{camera_role}'] = stats_to_save
             
             # Also update combined statistics by fetching existing and merging
-            self._update_combined_statistics(session_ref, camera_role, camera_stats)
+            self._update_combined_statistics(session_ref, camera_role, stats_to_save)
         else:
             # Legacy: save directly to statistics
             data['statistics'] = camera_stats
         
         # Only include events if explicitly requested (e.g., at end of session)
         if update_events:
-            if camera_role:
-                data[f'events_{camera_role}'] = [event.to_dict() for event in session_data.events]
-            else:
+            if not camera_role:
                 data['events'] = [event.to_dict() for event in session_data.events]
             
         session_ref.update(data)
@@ -129,6 +142,71 @@ class FirebaseService:
         for vehicle_type in all_types:
             merged[vehicle_type] = entry_dist.get(vehicle_type, 0) - exit_dist.get(vehicle_type, 0)
         return merged
+
+    def _normalize_event_list(self, events) -> list:
+        """Normalize Firebase event payload into a list of dict events."""
+        if not events:
+            return []
+        if isinstance(events, list):
+            return [e for e in events if isinstance(e, dict)]
+        if isinstance(events, dict):
+            return [e for _, e in sorted(events.items()) if isinstance(e, dict)]
+        return []
+
+    def _event_fingerprint(self, event: dict) -> tuple:
+        """Stable event identity for de-duplication across batched saves."""
+        return (
+            event.get('timestamp'),
+            event.get('vehicle_type'),
+            event.get('direction'),
+            event.get('seats_min'),
+            event.get('seats_max')
+        )
+
+    def _merge_event_dicts(self, existing_events: list, new_events: list) -> list:
+        """Append new unique events while preserving chronological order."""
+        merged = list(existing_events)
+        seen = {self._event_fingerprint(e) for e in merged}
+
+        for event in new_events:
+            fp = self._event_fingerprint(event)
+            if fp in seen:
+                continue
+            merged.append(event)
+            seen.add(fp)
+
+        merged.sort(key=lambda e: e.get('timestamp', ''))
+        return merged
+
+    def _calculate_statistics_from_event_dicts(self, events: list) -> dict:
+        """Recompute camera statistics from merged persisted event dicts."""
+        vehicles_in = sum(1 for e in events if e.get('direction') == 'IN')
+        vehicles_out = sum(1 for e in events if e.get('direction') == 'OUT')
+
+        people_in_min = sum(int(e.get('seats_min', 0) or 0) for e in events if e.get('direction') == 'IN')
+        people_in_max = sum(int(e.get('seats_max', 0) or 0) for e in events if e.get('direction') == 'IN')
+        people_out_min = sum(int(e.get('seats_min', 0) or 0) for e in events if e.get('direction') == 'OUT')
+        people_out_max = sum(int(e.get('seats_max', 0) or 0) for e in events if e.get('direction') == 'OUT')
+
+        distribution = {}
+        for event in events:
+            vehicle_type = event.get('vehicle_type')
+            if not vehicle_type:
+                continue
+            distribution[vehicle_type] = distribution.get(vehicle_type, 0) + 1
+
+        return {
+            'vehicles_in': vehicles_in,
+            'vehicles_out': vehicles_out,
+            'net_vehicles': max(0, vehicles_in - vehicles_out),
+            'people_in_min': people_in_min,
+            'people_in_max': people_in_max,
+            'people_out_min': people_out_min,
+            'people_out_max': people_out_max,
+            'people_on_site_min': max(0, people_in_min - people_out_min),
+            'people_on_site_max': max(0, people_in_max - people_out_max),
+            'vehicle_distribution': distribution
+        }
     
     def save_event(self, session_id: str, event):
         """

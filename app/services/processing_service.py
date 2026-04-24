@@ -117,6 +117,7 @@ class ProcessingJob:
     is_live_stream: bool = False
     should_stop: bool = False
     frames_processed: int = 0
+    start_frame: int = 0
     # Firebase batching state
     last_firebase_save_time: datetime = field(default_factory=datetime.now)
     last_event_count_saved: int = 0
@@ -158,7 +159,8 @@ def start_processing(
     location: str,
     video_start_time: datetime = None,
     camera_role: str = CameraRole.ENTRY.value,
-    is_live_stream: bool = False
+    is_live_stream: bool = False,
+    start_frame: int = 0
 ) -> ProcessingJob:
     """
     Start video processing in a background thread.
@@ -204,7 +206,8 @@ def start_processing(
         location=location,
         camera_role=camera_role,
         video_start_time=video_start_time or datetime.now(),
-        is_live_stream=is_live_stream
+        is_live_stream=is_live_stream,
+        start_frame=start_frame
     )
     
     # Store job in global registry
@@ -355,7 +358,9 @@ def _process_video(
     # fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
     fps = 30.0
     total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-    
+
+    if job.start_frame > 0:
+        cap.set(cv2.CAP_PROP_POS_FRAMES, job.start_frame)
     # Setup video writer
     output_path = _create_video_writer(job, cap, fps)
     writer = cv2.VideoWriter(
@@ -374,7 +379,7 @@ def _process_video(
     
     # Processing state
     frame_queue = frame_queues.get(job.camera_role)
-    frame_idx = 0
+    frame_idx = job.start_frame 
     last_event_count = 0
     
     try:
@@ -382,6 +387,8 @@ def _process_video(
             ret, frame = cap.read()
             if not ret:
                 break
+
+            job.frames_processed = frame_idx
             
             # Process frame
             annotated_frame = _process_single_frame(
@@ -925,7 +932,8 @@ def _emit_progress_update(job: ProcessingJob) -> None:
         {
             'session_id': job.session_id,
             'progress': job.progress,
-            'camera_role': job.camera_role
+            'camera_role': job.camera_role,
+            'frames_processed': job.frames_processed
         },
         room=job.session_id,
         namespace='/'
@@ -967,7 +975,8 @@ def _emit_processing_complete(job: ProcessingJob, final_stats: dict) -> None:
         {
             'session_id': job.session_id,
             'statistics': final_stats,
-            'camera_role': job.camera_role
+            'camera_role': job.camera_role,
+            'status': job.status
         },
         room=job.session_id,
         namespace='/'

@@ -254,16 +254,25 @@ class DashboardManager {
     }
 
     handleProcessingComplete(data) {
-        this.showNotification('Processing Complete', 'Video analysis finished successfully!', 'success');
+        // Check if the job was actually stopped rather than completed naturally
+        const isStopped = data.status === PROCESSING_STATUS.STOPPED;
+        
+        // Show the appropriate notification
+        this.showNotification(
+            isStopped ? 'Processing Stopped' : 'Processing Complete', 
+            isStopped ? 'Video analysis was manually stopped.' : 'Video analysis finished successfully!', 
+            isStopped ? 'info' : 'success'
+        );
         
         if (data.statistics && data.camera_role) {
             this.updateCameraStatistics(data.camera_role, data.statistics);
         }
 
+        // Pass the actual status to the workbench, and only force 100% if it wasn't stopped
         this.forwardToWorkbench('handleProcessingUpdate', {
             camera_role: data.camera_role,
-            status: PROCESSING_STATUS.COMPLETED,
-            progress: 100
+            status: data.status || PROCESSING_STATUS.COMPLETED,
+            progress: isStopped ? undefined : 100
         });
     }
 
@@ -1082,6 +1091,7 @@ class WorkbenchManager {
 
         config.processingStatus = data.status;
         if (data.progress !== undefined) config.progress = data.progress;
+        if (data.frames_processed !== undefined) config.lastFrame = data.frames_processed;
 
         this.updateCameraStatusText(data.camera_role);
         this.updateCameraProgress(data.camera_role);
@@ -1098,6 +1108,10 @@ class WorkbenchManager {
 
         const config = this.cameraConfigs[data.camera_role];
         if (!config) return;
+
+        if (data.frames_processed !== undefined) {
+            config.lastFrame = data.frames_processed;
+        }
 
         // Handle live stream progress differently
         if (data.is_live || data.progress === -1) {
@@ -1120,12 +1134,19 @@ class WorkbenchManager {
     }
 
     checkAllCompleted() {
-        const allDone = Object.values(CAMERA_ROLES).every(
+        const trackedRoles = Object.values(CAMERA_ROLES).filter(role => {
+            const cfg = this.cameraConfigs[role];
+            return cfg.hasVideo && cfg.hasLine;
+        });
+
+        if (trackedRoles.length === 0) return;
+
+        const allDone = trackedRoles.every(
             role => this.cameraConfigs[role].processingStatus === PROCESSING_STATUS.COMPLETED ||
                    this.cameraConfigs[role].processingStatus === PROCESSING_STATUS.STOPPED
         );
 
-        const anyProcessing = Object.values(CAMERA_ROLES).some(
+        const anyProcessing = trackedRoles.some(
             role => this.cameraConfigs[role].processingStatus === PROCESSING_STATUS.PROCESSING
         );
 
@@ -1146,9 +1167,13 @@ class WorkbenchManager {
             this.globalElements.startBtn.disabled = false;
             this.globalElements.stopBtn?.classList.add('hidden');
             this.globalElements.processingStatus.classList.add('hidden');
-            const isStreamContext = Object.values(CAMERA_ROLES).some(role => this.cameraConfigs[role].isLiveStream);
-            if (isStreamContext) {
+            const hasStoppedCamera = Object.values(CAMERA_ROLES).some(
+                role => this.cameraConfigs[role].processingStatus === PROCESSING_STATUS.STOPPED
+            );
+            if (hasStoppedCamera) {
                 this.globalElements.continueBtn?.classList.remove('hidden');
+            } else {
+                this.globalElements.continueBtn?.classList.add('hidden');
             }
             feather.replace();
         }
@@ -1194,6 +1219,11 @@ class WorkbenchManager {
                 const config = this.cameraConfigs[this.currentCameraRole];
                 config.hasVideo = true;
                 config.videoName = file.name;
+                config.isLiveStream = false;
+                config.progress = 0;
+                if (config.processingStatus !== PROCESSING_STATUS.PROCESSING) {
+                    config.processingStatus = PROCESSING_STATUS.PENDING;
+                }
 
                 await this.loadFirstFrame(this.currentCameraRole);
                 this.updateStartButtonState();
@@ -1355,7 +1385,7 @@ class WorkbenchManager {
                 const response = await fetch('/setup/start-processing', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ location, camera_role: role })
+                    body: JSON.stringify({ location, camera_role: role, start_frame: isContinue ? (this.cameraConfigs[role].lastFrame || 0) : 0 })
                 });
                 const data = await response.json();
 
@@ -1465,11 +1495,6 @@ class WorkbenchManager {
 
             if (data.success) {
                 console.log('Stop signal sent successfully');
-                
-                // Check if any camera was configured as a live stream
-                const wasLiveStream = Object.values(CAMERA_ROLES).some(
-                    role => this.cameraConfigs[role].isLiveStream
-                );
 
                 // Update UI - the actual completion will come via socket events
                 Object.values(CAMERA_ROLES).forEach(role => {
@@ -1489,7 +1514,7 @@ class WorkbenchManager {
                 stopBtn.classList.add('hidden');
                 startBtn.innerHTML = `<i data-feather="rotate-ccw"></i>Start New Session`;
                 startBtn.disabled = false;
-                if (wasLiveStream && continueBtn) {
+                if (continueBtn) {
                     continueBtn.classList.remove('hidden');
                 }
                 processingStatus.classList.add('hidden');
